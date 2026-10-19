@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "sigma-android"
 include(":nimbussigma")
+include(":demo")
