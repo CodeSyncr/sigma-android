@@ -1,0 +1,35 @@
+Nimbus Sigma SDK License
+
+Copyright (c) 2026 CodeSyncr. All rights reserved.
+
+1. Grant. Subject to these terms and to the Nimbus Cloud terms of service,
+   CodeSyncr grants you a non-exclusive, non-transferable, revocable licence
+   to use this software development kit (the "SDK") to build and distribute
+   applications that open spreadsheets through Nimbus Cloud's Sigma API under
+   a Nimbus Cloud account you hold, using API keys issued to that account.
+
+2. Restrictions. You may not, and may not allow others to:
+   (a) use the SDK, or any part of it, other than with Nimbus Cloud's Sigma
+       API as described above;
+   (b) obtain, copy, store, extract, modify or redistribute the Sigma engine
+       or any other code or data the SDK receives from Nimbus Cloud, other
+       than as the SDK itself does in the course of a session;
+   (c) circumvent, disable or interfere with any metering, authentication,
+       licence check or usage limit of the SDK or of Nimbus Cloud, including
+       by using test-mode keys in production;
+   (d) reverse engineer, decompile or disassemble the SDK or the Sigma engine,
+       except to the extent applicable law expressly permits despite this
+       restriction;
+   (e) sublicense, sell, rent or lease the SDK, or use it to build a product
+       that competes with Sigma or Nimbus Cloud.
+
+3. Source availability. The SDK's source is published so you can read,
+   audit and build it. Publication grants no rights beyond this licence.
+
+4. Termination. This licence ends automatically if you breach it or your
+   Nimbus Cloud account is closed. On termination you must stop using and
+   distributing the SDK.
+
+5. No warranty. THE SDK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED. TO THE EXTENT PERMITTED BY LAW, CODESYNCR IS NOT LIABLE
+   FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE SDK OR ITS USE.

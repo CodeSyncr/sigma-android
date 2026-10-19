@@ -13,6 +13,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity android:name=".SheetActivity" android:windowSoftInputMode="adjustResize" />
+        <!-- The sheet stays open across rotation and keyboard changes. -->
+        <activity
+            android:name=".SheetActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden"
+            android:windowSoftInputMode="adjustResize" />
     </application>
 </manifest>
