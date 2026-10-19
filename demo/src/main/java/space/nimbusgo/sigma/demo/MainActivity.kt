@@ -26,7 +26,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // `adb shell am start … --es cloud http://localhost:3343 --es key sgm_test_…` fills in the settings.
+        // `adb shell am start … --es cloud http://localhost:3333 --es key sgm_test_…` fills in the settings.
         intent.getStringExtra("key")?.let { Settings.save(this, intent.getStringExtra("cloud") ?: Settings.cloud(this), it) }
         title = "Sigma sheets"
 

@@ -15,7 +15,7 @@ import space.nimbusgo.sigma.engine.WebViewRuntime
 
 /**
  * Opens real sheets against a running cloud and Sigma. Pass
- * `-Pandroid.testInstrumentationRunnerArguments.cloud=http://localhost:3343`
+ * `-Pandroid.testInstrumentationRunnerArguments.cloud=http://localhost:3333`
  * and `…key=sgm_test_…` (with `adb reverse` for both ports); skipped otherwise.
  */
 @RunWith(AndroidJUnit4::class)

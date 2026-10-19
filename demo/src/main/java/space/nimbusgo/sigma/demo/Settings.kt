@@ -11,7 +11,7 @@ import space.nimbusgo.sigma.SigmaClient
 object Settings {
     private fun prefs(c: Context) = c.getSharedPreferences("sigma-demo", Context.MODE_PRIVATE)
 
-    fun cloud(c: Context): String = prefs(c).getString("cloud", null) ?: "http://localhost:3343"
+    fun cloud(c: Context): String = prefs(c).getString("cloud", null) ?: "http://localhost:3333"
     fun key(c: Context): String = prefs(c).getString("key", null) ?: ""
 
     fun save(c: Context, cloud: String, key: String) {
