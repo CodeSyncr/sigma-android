@@ -59,5 +59,5 @@ internal object Http {
 
 /** Facts about the SDK itself. */
 object NimbusSigma {
-    const val VERSION = "1.0.0"
+    const val VERSION = "1.0.1"
 }

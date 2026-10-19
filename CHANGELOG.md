@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- Builds against Kotlin 1.9 and later. 1.0.0 was compiled for Kotlin 2.2, which apps on an older Kotlin (React Native apps, often) could not read.
+
 ## 1.0.0
 
 The first release: Sigma's native spreadsheet editor for Android, in step with NimbusSigma 2.1.0 for iOS.

@@ -26,7 +26,7 @@ and in your module:
 
 ```kotlin
 dependencies {
-    implementation("com.github.CodeSyncr:sigma-android:1.0.0")
+    implementation("com.github.CodeSyncr:sigma-android:1.0.1")
 }
 ```
 
