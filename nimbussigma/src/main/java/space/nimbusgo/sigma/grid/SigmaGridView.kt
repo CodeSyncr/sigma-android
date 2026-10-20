@@ -1163,6 +1163,49 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
         m.show()
     }
 
+    /** The format bar's pinned ⋮ menu: the sheet tools that otherwise sit behind a long press. */
+    internal fun showMoreMenu(anchor: View) {
+        if (editing != null || controller.readOnly.value) return
+        val s = controller.selection.value
+        val g = geometry
+        val m = PopupMenu(context, anchor, Gravity.END)
+        val menu = m.menu
+        var order = 0
+        fun add(to: Menu, title: String, a: Action) { to.add(0, a.ordinal, order++, title) }
+        val freeze = menu.addSubMenu(0, 1003, order++, "Freeze")
+        add(freeze, "1 row", Action.FREEZE_ONE_ROW)
+        add(freeze, "2 rows", Action.FREEZE_TWO_ROWS)
+        add(freeze, "1 column", Action.FREEZE_ONE_COLUMN)
+        add(freeze, "Up to ${s.active}", Action.FREEZE_HERE)
+        if (g.frozenRows > 0 || g.frozenColumns > 0) add(freeze, "No frozen panes", Action.UNFREEZE)
+        val rowWord = if (s.bottom > s.top) "rows" else "row"
+        val colWord = if (s.right > s.left) "columns" else "column"
+        val rows = menu.addSubMenu(0, 1000, order++, "Rows")
+        add(rows, "Insert $rowWord above", Action.INSERT_ROW_ABOVE)
+        add(rows, "Insert $rowWord below", Action.INSERT_ROW_BELOW)
+        add(rows, "Delete $rowWord", Action.DELETE_ROWS)
+        val cols = menu.addSubMenu(0, 1001, order++, "Columns")
+        add(cols, "Insert $colWord left", Action.INSERT_COLUMN_LEFT)
+        add(cols, "Insert $colWord right", Action.INSERT_COLUMN_RIGHT)
+        add(cols, "Delete $colWord", Action.DELETE_COLUMNS)
+        val fill = menu.addSubMenu(0, 1004, order++, "Fill")
+        add(fill, "Drag to fill…", Action.FILL)
+        if (s.bottom > s.top) add(fill, "Fill down", Action.FILL_DOWN)
+        if (s.right > s.left) add(fill, "Fill right", Action.FILL_RIGHT)
+        val sort = menu.addSubMenu(0, 1002, order++, "Sort")
+        add(sort, "Sort A → Z", Action.SORT_ASCENDING)
+        add(sort, "Sort Z → A", Action.SORT_DESCENDING)
+        add(menu, "Paste values only", Action.PASTE_VALUES)
+        menu.findItem(Action.PASTE_VALUES.ordinal).isEnabled = clip != null
+        add(menu, if (controller.activeNote.value.isEmpty()) "Add note" else "Edit note", Action.NOTE)
+        menu.findItem(Action.NOTE.ordinal).isEnabled = s.isSingle
+        m.setOnMenuItemClickListener {
+            if (it.itemId < Action.entries.size) perform(Action.entries[it.itemId])
+            true
+        }
+        m.show()
+    }
+
     fun showMenu(x: Float, y: Float) {
         if (editing != null) return
         val s = controller.selection.value

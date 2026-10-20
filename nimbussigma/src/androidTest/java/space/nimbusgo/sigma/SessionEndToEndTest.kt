@@ -115,6 +115,12 @@ class SessionEndToEndTest {
             book.pasteValues(clip, SigmaAddress(0, 2))
             assertEquals("42", book.input(SigmaAddress(0, 2)))
             assertEquals(true, book.style(SigmaAddress(0, 2)).bold)
+            // Whole numbers stay whole: "1200", never "1200.0".
+            book.set(mapOf(SigmaAddress(0, 4) to "Cost", SigmaAddress(1, 4) to "1200", SigmaAddress(2, 4) to "340", SigmaAddress(3, 4) to "=SUM(E2:E3)"))
+            val numbers = book.copy(SigmaSelection.parse("E1:E4")!!)
+            assertEquals("Cost\n1200\n340\n1540", numbers.text)
+            book.pasteValues(numbers, SigmaAddress(0, 6))
+            assertEquals(listOf("Cost", "1200", "340", "1540"), (0..3).map { book.input(SigmaAddress(it, 6)) })
 
             val copy = book.duplicateSheet(0)
             assertEquals(1, copy)

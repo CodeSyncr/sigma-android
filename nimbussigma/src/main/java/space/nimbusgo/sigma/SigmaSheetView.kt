@@ -202,7 +202,13 @@ class SigmaSheetView @JvmOverloads constructor(context: Context, attrs: Attribut
         if (!readOnly) {
             val bar = FormatBar(context, controller) { format -> share(session, format) }
             bar.watch(es)
-            root.addView(bar, matchWidth())
+            // The bar scrolls; ⋮ stays pinned at its end, so freeze, rows and the rest are always one tap away.
+            val more = IconButton(context, R.drawable.nimbussigma_ic_more_vert, "More") { controller.grid?.showMoreMenu(it) }
+            root.addView(context.row(
+                bar.apply { layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f) },
+                View(context).apply { setBackgroundColor(GridColors.frozenLine); layoutParams = LinearLayout.LayoutParams(dp(1f), dp(24f)) },
+                more.apply { (layoutParams as? LinearLayout.LayoutParams)?.setMargins(dp(4f), 0, dp(6f), 0) },
+            ).apply { setBackgroundColor(Color.WHITE) }, matchWidth())
             root.addView(context.divider())
         }
         val findSlot = FrameLayout(context)
