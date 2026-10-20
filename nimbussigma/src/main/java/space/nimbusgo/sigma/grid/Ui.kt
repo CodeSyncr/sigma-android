@@ -11,6 +11,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 
@@ -88,3 +89,36 @@ internal fun Context.divider(vertical: Boolean = false) = View(this).apply {
 
 internal fun weighted(weight: Float = 1f) = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, weight)
 internal fun matchWidth() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+
+/** A square icon button (a Material symbol from the library's drawables), tinted in code. */
+internal class IconButton(context: Context, icon: Int, label: String, onClick: (View) -> Unit) : ImageView(context) {
+    var on = false
+        set(v) {
+            field = v
+            isSelected = v
+            setColorFilter(if (v) GridColors.accent else tint)
+            background = pressable(context, if (v) GridColors.headerSelected else Color.TRANSPARENT)
+        }
+    var tint = GridColors.ink
+        set(v) { field = v; if (!on) setColorFilter(v) }
+
+    init {
+        setImageResource(icon)
+        contentDescription = label
+        scaleType = ScaleType.CENTER_INSIDE
+        val p = context.dp(8f)
+        setPadding(p, p, p, p)
+        background = pressable(context)
+        setColorFilter(tint)
+        isClickable = true
+        setOnClickListener(onClick)
+        tooltipText = label
+        layoutParams = LinearLayout.LayoutParams(context.dp(40f), context.dp(40f))
+    }
+}
+
+/** A slim vertical rule between groups of buttons. */
+internal fun Context.groupGap() = View(this).apply {
+    setBackgroundColor(GridColors.gridline)
+    layoutParams = LinearLayout.LayoutParams(dp(1f), dp(20f)).apply { setMargins(dp(6f), 0, dp(6f), 0) }
+}

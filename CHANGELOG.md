@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.0 (unreleased)
+
+- **Formula help:** typing a function name offers the functions it could be; inside a call, the syntax shows with the current argument highlighted. **Insert function** (the ƒx key and button) lists every function by category, searchable. The list comes from Sigma's engine, so it is always what Sigma computes. `SigmaWorkbook.functions()` returns it.
+- **Pinch to zoom**, 50% to 200% (Ctrl + / − / 0 on a keyboard).
+- **Fill by dragging:** Fill › Drag to fill turns the corner handle into a fill handle; series continue and formulas shift.
+- **Row heights:** drag the edge between row numbers.
+- **Freeze presets:** 1 row, 2 rows, 1 column, or up to the selected cell.
+- **Clear formatting**, **AutoSum**, and **Paste values only** (`SigmaWorkbook.pasteValues`).
+- **Sheet tabs:** duplicate, and move left or right (`duplicateSheet`, `moveSheet`).
+- A cleaner look: Material icons in the format bar, formula bar and tabs; panels open as bottom sheets; a shorter cell menu.
+- Fixed: selection handles showed over a frozen pane once their cell had scrolled under it.
+- Needs a Sigma server with the engine of October 2026 or later (for the function list, duplicate, move and paste values).
+
 ## 1.0.1
 
 - Builds against Kotlin 1.9 and later. 1.0.0 was compiled for Kotlin 2.2, which apps on an older Kotlin (React Native apps, often) could not read.

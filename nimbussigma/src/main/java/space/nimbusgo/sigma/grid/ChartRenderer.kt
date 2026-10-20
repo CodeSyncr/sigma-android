@@ -20,7 +20,11 @@ import kotlin.math.pow
  * Draws one chart as a card: its title, the plot and a legend. Series colours
  * are Sigma's own, so a chart looks the same as on the web.
  */
-internal class ChartRenderer(private val d: Float, private val paints: TextPaints) {
+internal class ChartRenderer(
+    /** Pixels per point, the zoom included. */
+    var d: Float,
+    private val paints: TextPaints,
+) {
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val path = Path()

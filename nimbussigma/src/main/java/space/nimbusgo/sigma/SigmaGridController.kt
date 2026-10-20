@@ -44,7 +44,7 @@ class SigmaGridController {
     /** The conversation with Vani AI, kept while the sheet is open. */
     val aiMessages: StateFlow<List<SigmaAIMessage>> = _aiMessages.asStateFlow()
 
-    enum class Panel { FIND, CONDITIONAL_FORMATTING, NOTE, CHART, AI }
+    enum class Panel { FIND, CONDITIONAL_FORMATTING, NOTE, CHART, AI, FUNCTIONS }
 
     internal var grid: SigmaGridView? = null
     internal val workbook: SigmaWorkbook? get() = grid?.workbook
@@ -88,6 +88,46 @@ class SigmaGridController {
     }
 
     fun setBorders(kind: SigmaWorkbook.Borders) = run { book, s -> book.applyBorders(kind, s) }
+
+    /** Removes every style from the selection: fonts, colours, alignment, number formats and borders. */
+    fun clearFormatting() = run { book, s ->
+        val patch = JSONObject()
+        for (k in listOf("b", "i", "u", "st", "al", "fs", "tc", "bg", "nf", "dp", "bT", "bB", "bL", "bR")) patch.put(k, "")
+        book.applyStylePatch(patch, s)
+    }
+
+    /**
+     * Sums the numbers just above the active cell into it, or starts a SUM
+     * for you to finish when there are none.
+     */
+    fun autoSum() = run { book, s ->
+        val a = s.active
+        var top = a.row - 1
+        while (top >= 0 && book.value(SigmaAddress(top, a.column)) is SigmaValue.Number) top--
+        top++
+        if (top < a.row) {
+            book.set("=SUM(${SigmaAddress(top, a.column)}:${SigmaAddress(a.row - 1, a.column)})", a)
+        } else {
+            grid?.beginEditing("=SUM(", focus = true)
+        }
+    }
+
+    /** Puts a function into the formula being typed, or starts one in the active cell. */
+    fun insertFunction(name: String) {
+        val g = grid ?: return
+        if (readOnly.value) return
+        if (isEditing.value) {
+            val text = editText.value
+            // Replace a half-typed name ("=SU") with the chosen one.
+            val partial = Regex("[A-Za-z][A-Za-z0-9.]*$").find(text)?.value ?: ""
+            g.setEditorText(text.dropLast(partial.length) + name + "(")
+        } else {
+            g.beginEditing("=$name(", focus = true)
+        }
+    }
+
+    /** Freezes rows above and columns left of a point; (0, 0) unfreezes. */
+    fun freeze(rows: Int, columns: Int) = run { book, _ -> book.freeze(rows, columns) }
 
     /** Sorts by the active cell's column; a single cell sorts the block of data around it. */
     fun sort(ascending: Boolean) = run { book, s ->

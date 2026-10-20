@@ -35,7 +35,11 @@ import space.nimbusgo.sigma.charts
 import space.nimbusgo.sigma.removeChart
 import space.nimbusgo.sigma.updateChart
 
-/** A dialog in the editor's own look: a title row with actions, then its content. */
+/**
+ * A bottom sheet in the editor's own look: a grab bar, a title row with
+ * actions, then its content. It rises from the bottom, full width, so every
+ * panel opens the same way.
+ */
 internal open class Panel(context: Context, title: String, tall: Boolean = false) : Dialog(context) {
     val body = context.column().apply { setPadding(dp(18f), dp(4f), dp(18f), dp(18f)) }
     val actions = context.row()
@@ -43,19 +47,31 @@ internal open class Panel(context: Context, title: String, tall: Boolean = false
 
     init {
         requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
-        val head = context.row(context.label(title, 17f, bold = true).apply { layoutParams = weighted() }, actions)
-        head.setPadding(context.dp(18f), context.dp(14f), context.dp(8f), context.dp(6f))
-        root.addView(head)
+        root.addView(View(context).apply {
+            background = rounded(GridColors.frozenLine, context.dp(2f).toFloat())
+        }, LinearLayout.LayoutParams(context.dp(36f), context.dp(4f)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            topMargin = context.dp(8f)
+        })
+        val head = context.row(context.label(title, 18f, bold = true).apply { layoutParams = weighted() }, actions)
+        head.setPadding(context.dp(18f), context.dp(8f), context.dp(8f), context.dp(4f))
+        root.addView(head, matchWidth())
         root.addView(ScrollView(context).apply {
             addView(body)
             isFillViewport = true
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, if (tall) 0 else ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         setContentView(root)
-        window?.setBackgroundDrawable(rounded(Color.WHITE, context.dp(16f).toFloat()))
+        val r = context.dp(18f).toFloat()
+        window?.setBackgroundDrawable(android.graphics.drawable.GradientDrawable().apply {
+            setColor(Color.WHITE)
+            cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+        })
+        window?.setGravity(Gravity.BOTTOM)
         window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-        val w = (context.resources.displayMetrics.widthPixels * 0.94f).toInt().coerceAtMost(context.dp(560f))
-        val h = if (tall) (context.resources.displayMetrics.heightPixels * 0.78f).toInt() else ViewGroup.LayoutParams.WRAP_CONTENT
-        window?.setLayout(w, h)
+        window?.attributes = window?.attributes?.apply { windowAnimations = android.R.style.Animation_InputMethod }
+        val h = if (tall) (context.resources.displayMetrics.heightPixels * 0.8f).toInt() else ViewGroup.LayoutParams.WRAP_CONTENT
+        window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, h)
+        setCanceledOnTouchOutside(true)
     }
 
     fun action(text: String, bold: Boolean = false, color: Int = GridColors.accent, onClick: () -> Unit): TextView =
@@ -63,9 +79,11 @@ internal open class Panel(context: Context, title: String, tall: Boolean = false
 
     fun dp(v: Float): Int = context.dp(v)
 
-    fun section(text: String) = body.addView(context.label(text.uppercase(), 12f, GridColors.secondary, bold = true).apply {
+    fun sectionLabel(text: String): TextView = context.label(text.uppercase(), 12f, GridColors.secondary, bold = true).apply {
         setPadding(0, dp(14f), 0, dp(6f))
-    })
+    }
+
+    fun section(text: String) = body.addView(sectionLabel(text))
 }
 
 /**
@@ -385,5 +403,62 @@ internal class ChartPanel(
             if (t != d.title || (range.isNotEmpty() && range != d.data)) update { it.copy(title = t, data = range.ifEmpty { it.data }) }
         }
         dismiss()
+    }
+}
+
+/**
+ * Every function formulas can use, searchable and by category. A tap puts the
+ * function into the formula being typed, or starts one in the active cell.
+ */
+internal class FunctionsPanel(
+    context: Context,
+    private val book: SigmaWorkbook,
+    private val controller: SigmaGridController,
+    private val scope: CoroutineScope,
+) : Panel(context, "Insert function", tall = true) {
+    private val search = context.field("Search functions").apply { imeOptions = EditorInfo.IME_ACTION_SEARCH }
+    private val list = context.column()
+    private var all: List<space.nimbusgo.sigma.SigmaFunction> = emptyList()
+
+    init {
+        action("Done", bold = true) { dismiss() }
+        body.addView(search, matchWidth())
+        body.addView(list, matchWidth())
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: Editable?) = render()
+        })
+        scope.launch {
+            all = runCatching { book.functions() }.getOrDefault(emptyList())
+            render()
+        }
+    }
+
+    private fun render() {
+        val q = search.text.toString().trim()
+        list.removeAllViews()
+        val shown = all.filter { q.isEmpty() || it.name.contains(q, ignoreCase = true) || it.description.contains(q, ignoreCase = true) }
+        if (shown.isEmpty()) {
+            list.addView(context.label(if (all.isEmpty()) "Loading…" else "No function matches “$q”.", 14f, GridColors.secondary).apply { setPadding(0, dp(16f), 0, 0) })
+            return
+        }
+        for ((category, fns) in shown.groupBy { it.category }.toSortedMap()) {
+            list.addView(sectionLabel(category))
+            for (f in fns) {
+                list.addView(context.column(
+                    context.label(f.syntax, 15f, GridColors.ink, bold = true).apply { typeface = Typeface.MONOSPACE },
+                    context.label(f.description, 13f, GridColors.secondary),
+                ).apply {
+                    setPadding(dp(4f), dp(9f), dp(4f), dp(9f))
+                    background = pressable(context)
+                    isClickable = true
+                    setOnClickListener {
+                        controller.insertFunction(f.name)
+                        dismiss()
+                    }
+                }, matchWidth())
+            }
+        }
     }
 }

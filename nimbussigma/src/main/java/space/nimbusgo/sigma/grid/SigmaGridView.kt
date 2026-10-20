@@ -20,6 +20,7 @@ import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.Menu
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
@@ -69,7 +70,8 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
         UNDO, REDO, CUT, COPY, PASTE, CLEAR, FILL_DOWN, FILL_RIGHT,
         INSERT_ROW_ABOVE, INSERT_ROW_BELOW, DELETE_ROWS, INSERT_COLUMN_LEFT, INSERT_COLUMN_RIGHT, DELETE_COLUMNS,
         EDIT, FREEZE_HERE, UNFREEZE, SORT_ASCENDING, SORT_DESCENDING, NOTE, CONDITIONAL_FORMATTING, FIND, INSERT_CHART,
-        EDIT_CHART, DELETE_CHART,
+        EDIT_CHART, DELETE_CHART, FILL, PASTE_VALUES,
+        FREEZE_ONE_ROW, FREEZE_TWO_ROWS, FREEZE_ONE_COLUMN,
     }
 
     var workbook: SigmaWorkbook? = null
@@ -79,6 +81,10 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
     private var watching: Job? = null
 
     private val d = resources.displayMetrics.density
+    /** Pinch zoom, 50% to 200%. Cells, headers, text and charts scale with it; handles and touch slop do not. */
+    private var zoom = 1f
+    /** Pixels per sheet point at the current zoom. */
+    private val pt: Float get() = d * zoom
     private val paints = TextPaints(d)
     private val chartRenderer = ChartRenderer(d, paints)
     private val fill = Paint()
@@ -92,6 +98,12 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
     private var layoutKey: Pair<Int, Int>? = null
     /** A column width being dragged, in pixels, before it is saved. */
     private var liveColumnWidth: Pair<Int, Float>? = null
+    /** A row height being dragged, in pixels, before it is saved. */
+    private var liveRowHeight: Pair<Int, Float>? = null
+    /** Fill mode: the corner handle drags out a fill instead of the selection. */
+    private var filling = false
+    /** The block a fill drag would fill, while it is being dragged. */
+    private var fillTarget: SigmaSelection? = null
 
     private var offX = 0f
     private var offY = 0f
@@ -123,9 +135,18 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
         data object None : Drag()
         data class Handle(val bottomRight: Boolean) : Drag()
         data class Resize(val column: Int, val startWidth: Float, val startX: Float) : Drag()
+        data class RowResize(val row: Int, val startHeight: Float, val startY: Float) : Drag()
+        data object Fill : Drag()
         data class Chart(val drag: ChartDrag) : Drag()
     }
     private val menuAnchor = View(context)
+
+    private val scaler = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScale(detector: ScaleGestureDetector): Boolean {
+            setZoom(zoom * detector.scaleFactor, detector.focusX, detector.focusY)
+            return true
+        }
+    })
 
     private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent): Boolean {
@@ -244,11 +265,13 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
 
     private fun makeGeometry(info: space.nimbusgo.sigma.SigmaSheetInfo?, layout: SigmaSheetLayout?): GridGeometry {
         val live = liveColumnWidth
+        val liveRow = liveRowHeight
+        val pt = pt
         return GridGeometry(
             info?.rows ?: 1000, info?.columns ?: 26, info?.frozenRows ?: 0, info?.frozenColumns ?: 0,
-            46 * d, 28 * d,
-            columnWidth = { c -> if (live?.first == c) live.second else ((layout?.widthOfColumn(c) ?: 96.0) * d).toFloat() },
-            rowHeight = { r -> ((layout?.heightOfRow(r) ?: 26.0) * d).toFloat() },
+            46 * pt, 28 * pt,
+            columnWidth = { c -> if (live?.first == c) live.second else ((layout?.widthOfColumn(c) ?: 96.0) * pt).toFloat() },
+            rowHeight = { r -> if (liveRow?.first == r) liveRow.second else ((layout?.heightOfRow(r) ?: 26.0) * pt).toFloat() },
         )
     }
 
@@ -256,6 +279,29 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
         val book = workbook ?: return
         geometry = makeGeometry(book.sheets.value.getOrNull(book.activeSheet.value), layout)
         clampOffsets()
+    }
+
+    /** Zooms about a point on screen, keeping what is under it in place. */
+    private fun setZoom(next: Float, focusX: Float, focusY: Float) {
+        val old = zoom
+        val nz = next.coerceIn(0.5f, 2f)
+        if (abs(nz - old) < 0.001f) return
+        val g = geometry
+        // The sheet point under the focus, in unzoomed points.
+        val sx = (offX + focusX - g.rowHeaderWidth) / (d * old)
+        val sy = (offY + focusY - g.columnHeaderHeight) / (d * old)
+        zoom = nz
+        paints.scale = pt
+        chartRenderer.d = pt
+        rebuildGeometry()
+        val ng = geometry
+        offX = sx * pt - (focusX - ng.rowHeaderWidth)
+        offY = sy * pt - (focusY - ng.columnHeaderHeight)
+        clampOffsets()
+        editing?.let { editor.setTextSize(TypedValue.COMPLEX_UNIT_DIP, (controller.activeStyle.value.fontSize ?: 13.0).toFloat() * zoom) }
+        positionEditor()
+        requestLoad()
+        invalidate()
     }
 
     /** Refills what the grid draws from: layout and charts when the workbook changed, cells around the screen. */
@@ -340,8 +386,14 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
             val (tl, br) = handlePoints()
             c.save()
             c.clipRect(hw - 12 * d, hh - 12 * d, w, h)
-            knob(c, tl.first, tl.second)
-            knob(c, br.first, br.second)
+            if (filling) {
+                fillKnob(c, br.first, br.second)
+                fillTarget?.let { t -> dashed(c, t) }
+            } else {
+                val sel = controller.selection.value
+                if (handleVisible(sel.top, sel.left, tl)) knob(c, tl.first, tl.second)
+                if (handleVisible(sel.bottom, sel.right, br)) knob(c, br.first, br.second)
+            }
             c.restore()
         }
 
@@ -486,6 +538,39 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
         c.drawCircle(x, y, 7 * d, knobStroke)
     }
 
+    /** A handle on a scrolling cell is hidden once that cell has scrolled under a frozen pane. */
+    private fun handleVisible(row: Int, column: Int, at: Pair<Float, Float>): Boolean {
+        val g = geometry
+        val tolerance = 2 * d
+        if (row >= g.frozenRows && at.second < g.columnHeaderHeight + g.frozenHeight - tolerance) return false
+        if (column >= g.frozenColumns && at.first < g.rowHeaderWidth + g.frozenWidth - tolerance) return false
+        return true
+    }
+
+    /** The fill handle: a square with a plus, so it reads differently from the round selection handles. */
+    private fun fillKnob(c: Canvas, x: Float, y: Float) {
+        val r = 9 * d
+        knobFill.color = GridColors.accent
+        c.drawRect(x - r, y - r, x + r, y + r, knobFill)
+        knobFill.color = Color.WHITE
+        val t = 1.5f * d
+        c.drawRect(x - r * 0.55f, y - t, x + r * 0.55f, y + t, knobFill)
+        c.drawRect(x - t, y - r * 0.55f, x + t, y + r * 0.55f, knobFill)
+    }
+
+    private val dash = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = GridColors.accent
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(6f, 4f), 0f)
+    }
+
+    /** The block a fill would reach, while it is dragged. */
+    private fun dashed(c: Canvas, t: SigmaSelection) {
+        val g = geometry
+        dash.strokeWidth = 2 * d
+        c.drawRect(g.screenX(t.left, offX), g.screenY(t.top, offY), g.screenX(t.right, offX) + g.width(t.right), g.screenY(t.bottom, offY) + g.height(t.bottom), dash)
+    }
+
     /** Where the selection's two handles are on screen. */
     private fun handlePoints(): Pair<Pair<Float, Float>, Pair<Float, Float>> {
         val g = geometry
@@ -503,12 +588,12 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
         val col = min(chart.column, g.columns - 1)
         val x = g.screenX(col, offX)
         val y = g.screenY(r, offY)
-        val rect = RectF(x, y, x + (chart.width * d).toFloat(), y + (chart.height * d).toFloat())
+        val rect = RectF(x, y, x + (chart.width * pt).toFloat(), y + (chart.height * pt).toFloat())
         val drag = chartDrag
         if (drag != null && drag.id == chart.id) {
             if (drag.resize) {
-                rect.right = max(rect.left + 200 * d, rect.right + drag.dx)
-                rect.bottom = max(rect.top + 140 * d, rect.bottom + drag.dy)
+                rect.right = max(rect.left + 200 * pt, rect.right + drag.dx)
+                rect.bottom = max(rect.top + 140 * pt, rect.bottom + drag.dy)
             } else rect.offset(drag.dx, drag.dy)
         }
         return rect
@@ -541,8 +626,8 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
         val viewH = height - g.columnHeaderHeight - g.frozenHeight
         val l = g.left(min(chart.column, g.columns - 1)) - g.frozenWidth
         val t = g.top(min(chart.row, g.rows - 1)) - g.frozenHeight
-        val r = l + (chart.width * d).toFloat()
-        val b = t + (chart.height * d).toFloat()
+        val r = l + (chart.width * pt).toFloat()
+        val b = t + (chart.height * pt).toFloat()
         if (l < offX || r > offX + viewW) offX = if (r - l <= viewW) min(l, max(offX, r - viewW)) else l - 8 * d
         if (t < offY || b > offY + viewH) offY = if (b - t <= viewH) min(t, max(offY, b - viewH)) else t - 8 * d
         clampOffsets()
@@ -561,12 +646,25 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (workbook == null) return false
+        scaler.onTouchEvent(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 scroller.forceFinished(true)
                 dragging = startDrag(e.x, e.y)
                 if (dragging != Drag.None) parent?.requestDisallowInterceptTouchEvent(true)
             }
+            // A second finger means a pinch: whatever one finger started is dropped.
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                if (dragging is Drag.Chart) { chartDrag = null }
+                if (dragging is Drag.Fill) fillTarget = null
+                dragging = Drag.None
+                liveColumnWidth = null; liveRowHeight = null
+                rebuildGeometry(); invalidate()
+            }
+        }
+        if (scaler.isInProgress || e.pointerCount > 1) {
+            parent?.requestDisallowInterceptTouchEvent(true)
+            return true
         }
         val drag = dragging
         if (drag != Drag.None) {
@@ -574,6 +672,8 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
             when (drag) {
                 is Drag.Handle -> dragHandle(drag.bottomRight, e.x, e.y, ended)
                 is Drag.Resize -> resize(drag, e.x, ended)
+                is Drag.RowResize -> resizeRow(drag, e.y, ended)
+                Drag.Fill -> dragFill(e.x, e.y, ended, e.actionMasked == MotionEvent.ACTION_CANCEL)
                 is Drag.Chart -> moveChart(drag.drag, e.x, e.y, ended, e.actionMasked == MotionEvent.ACTION_CANCEL)
                 Drag.None -> Unit
             }
@@ -599,12 +699,19 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
             }
         } else if (editing == null) {
             val (tl, br) = handlePoints()
-            if (hypot(x - br.first, y - br.second) < slop) return Drag.Handle(bottomRight = true)
-            if (hypot(x - tl.first, y - tl.second) < slop) return Drag.Handle(bottomRight = false)
+            val sel = controller.selection.value
+            val brShown = handleVisible(sel.bottom, sel.right, br)
+            if (filling && brShown && hypot(x - br.first, y - br.second) < slop) return Drag.Fill
+            if (brShown && hypot(x - br.first, y - br.second) < slop) return Drag.Handle(bottomRight = true)
+            if (handleVisible(sel.top, sel.left, tl) && hypot(x - tl.first, y - tl.second) < slop) return Drag.Handle(bottomRight = false)
         }
         if (y < g.columnHeaderHeight && x > g.rowHeaderWidth) {
             val col = g.columnEdgeNear(g.sheetX(x, offX), 14 * d)
             if (col != null) return Drag.Resize(col, g.width(col), x)
+        }
+        if (x < g.rowHeaderWidth && y > g.columnHeaderHeight) {
+            val row = g.rowEdgeNear(g.sheetY(y, offY), 10 * d)
+            if (row != null) return Drag.RowResize(row, g.height(row), y)
         }
         return Drag.None
     }
@@ -624,6 +731,7 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
     }
 
     private fun tapped(x: Float, y: Float) {
+        if (filling) { filling = false; fillTarget = null; invalidate() }
         val chart = chartAt(x, y)
         if (chart != null) {
             selectChart(chart.id)
@@ -695,7 +803,7 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
     }
 
     private fun resize(drag: Drag.Resize, x: Float, ended: Boolean) {
-        val w = max(24 * d, drag.startWidth + x - drag.startX)
+        val w = max(24 * pt, drag.startWidth + x - drag.startX)
         if (!ended) {
             liveColumnWidth = drag.column to w
             rebuildGeometry()
@@ -704,8 +812,53 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
         }
         val book = workbook ?: return
         scope.launch {
-            runCatching { book.setColumnWidth(drag.column, (w / d).toDouble()) }
+            runCatching { book.setColumnWidth(drag.column, (w / pt).toDouble()) }
             liveColumnWidth = null
+        }
+    }
+
+    private fun resizeRow(drag: Drag.RowResize, y: Float, ended: Boolean) {
+        val h = max(14 * pt, drag.startHeight + y - drag.startY)
+        if (!ended) {
+            liveRowHeight = drag.row to h
+            rebuildGeometry()
+            invalidate()
+            return
+        }
+        val book = workbook ?: return
+        scope.launch {
+            runCatching { book.setRowHeight(drag.row, (h / pt).toDouble()) }
+            liveRowHeight = null
+        }
+    }
+
+    /** Fill mode: the target grows from the selection in the direction dragged furthest. */
+    private fun dragFill(x: Float, y: Float, ended: Boolean, cancelled: Boolean) {
+        val g = geometry
+        val s = controller.selection.value
+        val hit = g.hit(max(x, g.rowHeaderWidth + 1), max(y, g.columnHeaderHeight + 1), offX, offY)
+        if (hit is GridGeometry.Hit.Cell) {
+            val down = when { hit.row > s.bottom -> hit.row - s.bottom; hit.row < s.top -> s.top - hit.row; else -> 0 }
+            val across = when { hit.column > s.right -> hit.column - s.right; hit.column < s.left -> s.left - hit.column; else -> 0 }
+            fillTarget = when {
+                down == 0 && across == 0 -> null
+                down >= across -> SigmaSelection(SigmaAddress(min(s.top, hit.row), s.left), SigmaAddress(max(s.bottom, hit.row), s.right))
+                else -> SigmaSelection(SigmaAddress(s.top, min(s.left, hit.column)), SigmaAddress(s.bottom, max(s.right, hit.column)))
+            }
+            invalidate()
+        }
+        if (!ended) return
+        val target = fillTarget
+        fillTarget = null
+        filling = false
+        invalidate()
+        val book = workbook ?: return
+        if (cancelled || target == null) return
+        scope.launch {
+            runCatching { book.fill(s, target) }.onFailure { flash(it) }
+            controller.setSelection(SigmaSelection(target.topLeft, target.bottomRight))
+            refreshActive()
+            invalidate()
         }
     }
 
@@ -725,8 +878,8 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
         }
         val g = geometry
         val next = if (drag.resize) {
-            chart.copy(width = (max(200 * d, (chart.width * d).toFloat() + drag.dx) / d).toDouble().let { Math.round(it).toDouble() },
-                height = (max(140 * d, (chart.height * d).toFloat() + drag.dy) / d).toDouble().let { Math.round(it).toDouble() })
+            chart.copy(width = (max(200 * pt, (chart.width * pt).toFloat() + drag.dx) / pt).toDouble().let { Math.round(it).toDouble() },
+                height = (max(140 * pt, (chart.height * pt).toFloat() + drag.dy) / pt).toDouble().let { Math.round(it).toDouble() })
         } else {
             // The chart settles on the cell under its corner.
             val sx = g.left(chart.column) + drag.dx
@@ -807,7 +960,7 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
         editor.setText(raw)
         editor.setSelection(raw.length)
         settingEditor = false
-        editor.setTextSize(TypedValue.COMPLEX_UNIT_DIP, (style.fontSize ?: 13.0).toFloat())
+        editor.setTextSize(TypedValue.COMPLEX_UNIT_DIP, (style.fontSize ?: 13.0).toFloat() * zoom)
         editor.setTypeface(null, if (style.bold == true) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         editor.visibility = VISIBLE
         controller.setEditing(true)
@@ -926,6 +1079,13 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
             Action.FIND -> return controller.showPanel(SigmaGridController.Panel.FIND)
             Action.INSERT_CHART -> return controller.insertChart()
             Action.EDIT_CHART -> return controller.showPanel(SigmaGridController.Panel.CHART)
+            Action.FILL -> {
+                // The corner handle becomes a fill handle until the next fill or tap.
+                if (editing != null) commitEditing(Move.NONE)
+                filling = true
+                invalidate()
+                return
+            }
             else -> Unit
         }
         if (action == Action.UNDO && editing != null) return cancelEditing()
@@ -948,6 +1108,11 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
                         if (clip?.isCut == true) clip = null
                         if (r > 0 && c > 0) controller.setSelection(SigmaSelection(s.topLeft, SigmaAddress(s.top + r - 1, s.left + c - 1)))
                     }
+                    Action.PASTE_VALUES -> {
+                        val c = clip ?: return@launch
+                        val (r, cc) = book.pasteValues(c, s.topLeft)
+                        if (r > 0 && cc > 0) controller.setSelection(SigmaSelection(s.topLeft, SigmaAddress(s.top + r - 1, s.left + cc - 1)))
+                    }
                     Action.CLEAR -> book.clear(s)
                     Action.FILL_DOWN -> book.fill(SigmaSelection(s.topLeft, SigmaAddress(s.top, s.right)), s)
                     Action.FILL_RIGHT -> book.fill(SigmaSelection(s.topLeft, SigmaAddress(s.bottom, s.left)), s)
@@ -957,7 +1122,10 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
                     Action.INSERT_COLUMN_LEFT -> book.insertColumns(s.left, cols)
                     Action.INSERT_COLUMN_RIGHT -> book.insertColumns(s.right + 1, cols)
                     Action.DELETE_COLUMNS -> book.deleteColumns(s.left, cols)
-                    Action.FREEZE_HERE -> book.freeze(s.active.row, s.active.column)
+                    Action.FREEZE_HERE -> book.freeze(s.active.row + 1, s.active.column + 1)
+                    Action.FREEZE_ONE_ROW -> book.freeze(1, geometry.frozenColumns)
+                    Action.FREEZE_TWO_ROWS -> book.freeze(2, geometry.frozenColumns)
+                    Action.FREEZE_ONE_COLUMN -> book.freeze(geometry.frozenRows, 1)
                     Action.UNFREEZE -> book.freeze(0, 0)
                     Action.DELETE_CHART -> controller.selectedChart.value?.let { book.removeChart(it); controller.setSelectedChart(null) }
                     else -> Unit
@@ -1013,10 +1181,14 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
         add(menu, "Copy", Action.COPY)
         if (!ro) {
             if (clipboard().hasPrimaryClip()) add(menu, "Paste", Action.PASTE)
+            // Values only needs Sigma's own copy, which knows what the cells computed.
+            if (clip != null) add(menu, "Paste values only", Action.PASTE_VALUES)
             add(menu, "Clear", Action.CLEAR)
-            if (!s.isSingle && !wholeRows && !wholeColumns) {
-                if (s.bottom > s.top) add(menu, "Fill down", Action.FILL_DOWN)
-                if (s.right > s.left) add(menu, "Fill right", Action.FILL_RIGHT)
+            if (!wholeRows && !wholeColumns) {
+                val fill = menu.addSubMenu(0, 1004, order++, "Fill")
+                add(fill, "Drag to fill…", Action.FILL)
+                if (s.bottom > s.top) add(fill, "Fill down", Action.FILL_DOWN)
+                if (s.right > s.left) add(fill, "Fill right", Action.FILL_RIGHT)
             }
             val rowWord = if (s.bottom > s.top) "rows" else "row"
             val colWord = if (s.right > s.left) "columns" else "column"
@@ -1044,10 +1216,12 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
                 add(sort, "Sort Z → A", Action.SORT_DESCENDING)
             }
             if (s.isSingle) add(menu, if (controller.activeNote.value.isEmpty()) "Add note" else "Edit note", Action.NOTE)
-            add(menu, "Conditional formatting…", Action.CONDITIONAL_FORMATTING)
-            add(menu, "Insert chart", Action.INSERT_CHART)
-            add(menu, if (g.frozenRows > 0 || g.frozenColumns > 0) "Unfreeze" else "Freeze up to here",
-                if (g.frozenRows > 0 || g.frozenColumns > 0) Action.UNFREEZE else Action.FREEZE_HERE)
+            val freeze = menu.addSubMenu(0, 1003, order++, "Freeze")
+            add(freeze, "1 row", Action.FREEZE_ONE_ROW)
+            add(freeze, "2 rows", Action.FREEZE_TWO_ROWS)
+            add(freeze, "1 column", Action.FREEZE_ONE_COLUMN)
+            add(freeze, "Up to ${s.active}", Action.FREEZE_HERE)
+            if (g.frozenRows > 0 || g.frozenColumns > 0) add(freeze, "No frozen panes", Action.UNFREEZE)
         }
         m.setOnMenuItemClickListener {
             if (it.itemId < Action.entries.size) perform(Action.entries[it.itemId])
@@ -1080,6 +1254,10 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
                 KeyEvent.KEYCODE_I -> controller.toggleItalic()
                 KeyEvent.KEYCODE_U -> controller.toggleUnderline()
                 KeyEvent.KEYCODE_F -> perform(Action.FIND)
+                // Zoom about the middle of the sheet, as a pinch would.
+                KeyEvent.KEYCODE_EQUALS, KeyEvent.KEYCODE_PLUS, KeyEvent.KEYCODE_NUMPAD_ADD -> setZoom(zoom * 1.25f, width / 2f, height / 2f)
+                KeyEvent.KEYCODE_MINUS, KeyEvent.KEYCODE_NUMPAD_SUBTRACT -> setZoom(zoom / 1.25f, width / 2f, height / 2f)
+                KeyEvent.KEYCODE_0 -> setZoom(1f, width / 2f, height / 2f)
                 KeyEvent.KEYCODE_A -> select(SigmaSelection(SigmaAddress(0, 0), SigmaAddress(g.rows - 1, g.columns - 1)), scroll = false)
                 else -> return super.onKeyDown(keyCode, event)
             }

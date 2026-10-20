@@ -36,6 +36,10 @@ import space.nimbusgo.sigma.grid.ChartPanel
 import space.nimbusgo.sigma.grid.ConditionalFormattingPanel
 import space.nimbusgo.sigma.grid.FindBar
 import space.nimbusgo.sigma.grid.FormatBar
+import space.nimbusgo.sigma.grid.FormulaHelpBar
+import space.nimbusgo.sigma.grid.FormulaHint
+import space.nimbusgo.sigma.grid.FunctionsPanel
+import space.nimbusgo.sigma.grid.IconButton
 import space.nimbusgo.sigma.grid.GridColors
 import space.nimbusgo.sigma.grid.NotePanel
 import space.nimbusgo.sigma.grid.SigmaGridView
@@ -213,12 +217,21 @@ class SigmaSheetView @JvmOverloads constructor(context: Context, attrs: Attribut
         root.addView(noteBanner, matchWidth())
         root.addView(g, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(context.divider())
-        val keys = FormulaKeys(context) { g.insertIntoEditor(it) }
+        val help = FormulaHelpBar(context) { name -> controller.insertFunction(name) }
+        root.addView(help, matchWidth())
+        val keys = FormulaKeys(context, { g.insertIntoEditor(it) }) { controller.showPanel(SigmaGridController.Panel.FUNCTIONS) }
         root.addView(keys, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48f)))
         val tabs = SheetTabs(context, book, controller, readOnly, es)
         root.addView(tabs, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46f)))
         addView(root, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
+        // Formula help: what a half-typed name could be, or the syntax of the call being filled in.
+        es.launch {
+            val functions = runCatching { book.functions() }.getOrDefault(emptyList())
+            combine(controller.isEditing, controller.editText) { e, t -> if (e) t else "" }.collect { text ->
+                help.show(FormulaHint.of(text, functions))
+            }
+        }
         es.launch {
             combine(controller.isEditing, controller.activeNote) { e, n -> e to n }.collect { (editing, note) ->
                 keys.visibility = if (editing) VISIBLE else GONE
@@ -245,6 +258,7 @@ class SigmaSheetView @JvmOverloads constructor(context: Context, attrs: Attribut
                     SigmaGridController.Panel.CONDITIONAL_FORMATTING -> ConditionalFormattingPanel(context, book, controller, readOnly, es)
                     SigmaGridController.Panel.CHART -> if (readOnly) null else ChartPanel(context, book, controller, es)
                     SigmaGridController.Panel.AI -> if (readOnly) null else VaniPanel(context, session, controller, es)
+                    SigmaGridController.Panel.FUNCTIONS -> if (readOnly) null else FunctionsPanel(context, book, controller, es)
                     else -> null
                 }?.also { d ->
                     d.setOnDismissListener { if (controller.panel.value == p) controller.showPanel(null) }
@@ -299,8 +313,8 @@ private class FormulaBar(context: Context, private val controller: SigmaGridCont
         imeOptions = EditorInfo.IME_ACTION_DONE or EditorInfo.IME_FLAG_NO_EXTRACT_UI
         isEnabled = !readOnly
     }
-    private val cancel = context.button("✕", 15f, GridColors.secondary) { controller.cancel(); field.clearFocus() }.apply { contentDescription = "Cancel" }
-    private val done = context.button("✓", 17f, GridColors.accent, bold = true) { controller.commit(); field.clearFocus() }.apply { contentDescription = "Done" }
+    private val cancel = IconButton(context, R.drawable.nimbussigma_ic_close, "Cancel") { controller.cancel(); field.clearFocus() }.apply { tint = GridColors.secondary }
+    private val done = IconButton(context, R.drawable.nimbussigma_ic_check, "Done") { controller.commit(); field.clearFocus() }.apply { tint = GridColors.accent }
     private var setting = false
 
     init {
@@ -347,16 +361,19 @@ private class FormulaBar(context: Context, private val controller: SigmaGridCont
 }
 
 /** Keys a formula needs that the phone keyboard hides, above it while editing. */
-private class FormulaKeys(context: Context, insert: (String) -> Unit) : LinearLayout(context) {
+private class FormulaKeys(context: Context, insert: (String) -> Unit, functions: () -> Unit) : LinearLayout(context) {
     init {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         setBackgroundColor(GridColors.surface)
         setPadding(dp(4f), dp(5f), dp(4f), dp(5f))
         visibility = GONE
-        for (key in listOf("=", "+", "−", "×", "÷", "(", ")", ":", ",", "Σ")) {
+        for (key in listOf("=", "+", "−", "×", "÷", "(", ")", ":", ",", "Σ", "ƒx")) {
             val text = when (key) { "−" -> "-"; "×" -> "*"; "÷" -> "/"; "Σ" -> "SUM("; else -> key }
-            addView(context.button(key, 18f) { insert(text) }.apply {
+            addView(context.button(key, if (key == "ƒx") 15f else 18f, if (key == "ƒx") GridColors.accent else GridColors.ink, bold = key == "ƒx") {
+                if (key == "ƒx") functions() else insert(text)
+            }.apply {
+                if (key == "ƒx") contentDescription = "Insert function"
                 background = pressable(context, Color.WHITE, 6f)
                 minWidth = 0
                 setPadding(0, 0, 0, 0)
@@ -385,8 +402,10 @@ private class SheetTabs(
             strip.setPadding(dp(8f), 0, dp(8f), 0)
         }, LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         if (!readOnly) {
-            addView(context.button("↶", 20f) { controller.undo() }.apply { contentDescription = "Undo" })
-            addView(context.button("↷", 20f) { controller.redo() }.apply { contentDescription = "Redo" })
+            addView(IconButton(context, R.drawable.nimbussigma_ic_undo, "Undo") { controller.undo() })
+            addView(IconButton(context, R.drawable.nimbussigma_ic_redo, "Redo") { controller.redo() }.apply {
+                layoutParams = LayoutParams(dp(40f), dp(40f)).apply { rightMargin = dp(6f) }
+            })
         }
         scope.launch {
             combine(book.sheets, book.activeSheet) { s, a -> s to a }.collect { (sheets, active) -> render(sheets, active) }
@@ -406,15 +425,31 @@ private class SheetTabs(
                 if (!readOnly) setOnLongClickListener { menu(it, i, sheets.size); true }
             }, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(4f) })
         }
-        if (!readOnly) strip.addView(context.button("+", 18f) { scope.launch { runCatching { book.addSheet() } } }.apply { contentDescription = "Add sheet" })
+        if (!readOnly) strip.addView(IconButton(context, R.drawable.nimbussigma_ic_add, "Add sheet") { scope.launch { runCatching { book.addSheet() } } })
     }
 
     private fun menu(anchor: View, index: Int, count: Int) {
         val m = PopupMenu(context, anchor)
         m.menu.add(0, 0, 0, "Rename")
-        if (count > 1) m.menu.add(0, 1, 1, "Delete")
+        m.menu.add(0, 2, 1, "Duplicate")
+        if (index > 0) m.menu.add(0, 3, 2, "Move left")
+        if (index < count - 1) m.menu.add(0, 4, 3, "Move right")
+        if (count > 1) m.menu.add(0, 1, 4, "Delete")
         m.setOnMenuItemClickListener {
-            if (it.itemId == 0) rename(index) else scope.launch { runCatching { book.deleteSheet(index) }.onFailure { e -> controller.grid?.flash(e) } }
+            when (it.itemId) {
+                0 -> rename(index)
+                else -> scope.launch {
+                    runCatching {
+                        when (it.itemId) {
+                            1 -> book.deleteSheet(index)
+                            2 -> book.duplicateSheet(index)
+                            3 -> book.moveSheet(index, index - 1)
+                            4 -> book.moveSheet(index, index + 1)
+                            else -> Unit
+                        }
+                    }.onFailure { e -> controller.grid?.flash(e) }
+                }
+            }
             true
         }
         m.show()

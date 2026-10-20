@@ -98,6 +98,36 @@ class SessionEndToEndTest {
         }
     }
 
+    @Test fun functionsSheetsAndPasteValues() = runBlocking {
+        val sigma = client()
+        val doc = sigma.createBlank("Android tools")
+        val session = SigmaSession(context) { sigma.link(doc.id).url }
+        try {
+            val book = ready(session)
+            // The catalogue comes from the engine itself.
+            val fns = book.functions()
+            assertTrue(fns.size >= 80)
+            assertEquals("SUMIF(range, criterion, [sum_range])", fns.first { it.name == "SUMIF" }.syntax)
+
+            book.set(mapOf(SigmaAddress(0, 0) to "2", SigmaAddress(1, 0) to "=A1*21"))
+            book.applyStyle(SigmaStyle(bold = true), SigmaSelection.parse("C1")!!)
+            val clip = book.copy(SigmaSelection.parse("A2")!!)
+            book.pasteValues(clip, SigmaAddress(0, 2))
+            assertEquals("42", book.input(SigmaAddress(0, 2)))
+            assertEquals(true, book.style(SigmaAddress(0, 2)).bold)
+
+            val copy = book.duplicateSheet(0)
+            assertEquals(1, copy)
+            assertEquals(listOf("Sheet1", "Sheet1 copy"), book.sheets.value.map { it.name })
+            assertEquals("42", book.value(SigmaAddress(1, 0), sheet = 1).shown())
+            book.moveSheet(1, 0)
+            assertEquals(listOf("Sheet1 copy", "Sheet1"), book.sheets.value.map { it.name })
+        } finally {
+            session.close()
+            sigma.delete(doc.id)
+        }
+    }
+
     @Test fun refusesABadLink() = runBlocking {
         client()
         val session = SigmaSession(context) { "$cloud/v/sigma/1?sig=forged" }

@@ -90,8 +90,9 @@ Keep the session in a `ViewModel` (or handle configuration changes) so a rotatio
 
 ### What people get
 
-- **The grid:** smooth scrolling and flinging, sticky headers, frozen rows and columns, tap to select, round handles to stretch a selection, tap again to type, a formula bar, a row of formula keys above the keyboard, column resizing, a long-press menu (cut, copy, paste, fill, insert and delete rows and columns, sort, notes, freeze), sheet tabs, undo and redo. Hardware keyboards get arrows, Tab, Enter and Ctrl+C/X/V/Z/Y/A/D/R/B/I/U/F.
-- **Formatting:** bold, italic, underline, strikethrough, text and fill colours, alignment, number formats, decimals, text size, borders.
+- **The grid:** smooth scrolling and flinging, pinch to zoom, sticky headers, frozen rows and columns (with presets), tap to select, round handles to stretch a selection, drag to fill, tap again to type, a formula bar, a row of formula keys above the keyboard, column and row resizing, a long-press menu (cut, copy, paste, paste values only, fill, insert and delete rows and columns, sort, notes, freeze), sheet tabs (rename, duplicate, move, delete), undo and redo. Hardware keyboards get arrows, Tab, Enter and Ctrl+C/X/V/Z/Y/A/D/R/B/I/U/F and Ctrl+ +/−/0 to zoom.
+- **Formulas:** suggestions as you type a function name, the syntax of the function you are in with the current argument highlighted, and an Insert function list by category; AutoSum.
+- **Formatting:** bold, italic, underline, strikethrough, text and fill colours, alignment, number formats, decimals, text size, borders, Clear formatting.
 - **Data:** find and replace, sort (a header row stays put), conditional formatting, notes.
 - **Charts:** column, bar, line, area, scatter, pie and doughnut, bound to their cells. Move, resize, restyle, delete.
 - **Vani AI**, when your Nimbus Cloud account is on Pro: people ask, and apply the change it proposes as one undo step. Its use counts against your plan.
@@ -156,6 +157,10 @@ The demo keeps the key on the device so it runs on its own. A real app keeps it 
   -Pandroid.testInstrumentationRunnerArguments.cloud=http://localhost:3333 \
   -Pandroid.testInstrumentationRunnerArguments.key=sgm_test_…
 ```
+
+## Third-party notices
+
+The editor's icons are [Material Symbols](https://github.com/google/material-design-icons) by Google, under the Apache License 2.0.
 
 ## License
 

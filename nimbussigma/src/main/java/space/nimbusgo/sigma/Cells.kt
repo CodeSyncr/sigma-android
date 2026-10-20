@@ -220,3 +220,13 @@ data class SigmaConditionalRule(
         )
     }
 }
+
+/** A function formulas can use, as Sigma describes it. */
+data class SigmaFunction(
+    val name: String,
+    /** "Math", "Text", "Lookup", "Logical", "Date", "Statistics" or "Info". */
+    val category: String,
+    /** "SUMIF(range, criterion, [sum_range])" */
+    val syntax: String,
+    val description: String,
+)

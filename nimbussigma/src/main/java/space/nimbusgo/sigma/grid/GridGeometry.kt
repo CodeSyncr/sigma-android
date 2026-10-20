@@ -106,6 +106,14 @@ internal class GridGeometry(
         return null
     }
 
+    /** The row edge within [slop] of y (sheet coordinates): the row above it, for resizing. */
+    fun rowEdgeNear(y: Float, slop: Float): Int? {
+        val r = rowAt(y)
+        if (abs(rowY[r + 1] - y) <= slop) return r
+        if (r > 0 && abs(rowY[r] - y) <= slop) return r - 1
+        return null
+    }
+
     companion object {
         /** Room under the last row, so it can be scrolled clear of the screen's edge. */
         const val EXTRA_BOTTOM = 80f

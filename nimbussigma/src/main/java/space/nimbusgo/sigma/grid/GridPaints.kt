@@ -47,8 +47,16 @@ internal object Palette {
 }
 
 /** Text paints by look, so a frame never builds one twice. */
-internal class TextPaints(private val scale: Float) {
+internal class TextPaints(scale: Float) {
     private val cache = HashMap<String, TextPaint>()
+
+    /** Pixels per point; changing it (a zoom) drops the paints made at the old size. */
+    var scale: Float = scale
+        set(v) {
+            if (v == field) return
+            field = v
+            cache.clear()
+        }
 
     fun forCell(style: SigmaStyle?, color: Int): TextPaint {
         val size = (style?.fontSize ?: 13.0).toFloat()

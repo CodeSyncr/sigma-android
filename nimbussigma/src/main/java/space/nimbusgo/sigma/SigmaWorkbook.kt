@@ -196,6 +196,17 @@ class SigmaWorkbook internal constructor(internal val engine: SigmaEngine, inter
         return out.optInt("rows") to out.optInt("cols")
     }
 
+    /**
+     * Pastes the values a clip held when it was copied, without formulas or
+     * formatting: the cells keep their own look. Returns how many rows and
+     * columns landed.
+     */
+    suspend fun pasteValues(clip: Clip, at: SigmaAddress, sheet: Int? = null): Pair<Int, Int> {
+        val out = JSONObject(callMethod("pasteValues", sh(sheet), at.row, at.column, clip.payload))
+        changed()
+        return out.optInt("rows") to out.optInt("cols")
+    }
+
     /** Fills [target] (which contains [source]) from the block at its start: series continue (1, 2, 3…) and formulas shift. */
     suspend fun fill(source: SigmaSelection, target: SigmaSelection, sheet: Int? = null) {
         // Sigma fills the cells beyond the source, in one direction.
@@ -239,6 +250,37 @@ class SigmaWorkbook internal constructor(internal val engine: SigmaEngine, inter
         if (callMethod("deleteSheet", index) != "true") throw SigmaException.Editor("A workbook needs at least one sheet.")
         changed()
         selectSheet(minOf(index, _sheets.value.size - 1))
+    }
+
+    /** Copies a sheet (cells, sizes, frozen panes, rules and charts) to just after it, and shows the copy. */
+    suspend fun duplicateSheet(index: Int): Int {
+        val i = callMethod("duplicateSheet", index).toDoubleOrNull()?.toInt() ?: -1
+        if (i < 0) throw SigmaException.Editor("That sheet cannot be copied.")
+        changed()
+        selectSheet(i)
+        return i
+    }
+
+    /** Moves a sheet to another position among the tabs. */
+    suspend fun moveSheet(from: Int, to: Int) {
+        if (callMethod("moveSheet", from, to) != "true") return
+        changed()
+    }
+
+    // Formulas
+
+    private var catalog: List<SigmaFunction>? = null
+
+    /** Every function formulas can use, with its syntax and what it does, in name order. */
+    suspend fun functions(): List<SigmaFunction> {
+        catalog?.let { return it }
+        val a = engine.callArray("functions")
+        val list = (0 until a.length()).map { i ->
+            val o = a.getJSONObject(i)
+            SigmaFunction(o.getString("name"), o.optString("category"), o.optString("syntax"), o.optString("description"))
+        }
+        catalog = list
+        return list
     }
 
     // Saving
