@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        The editor's own theme. SigmaSheetView builds everything inside it with
+        this, so text fields, cursors, dialogs and toasts look the same in every
+        app, whatever theme the app itself uses.
+    -->
+    <style name="NimbusSigma" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">#188038</item>
+        <item name="android:colorPrimaryDark">#188038</item>
+        <item name="android:colorAccent">#188038</item>
+        <item name="android:colorControlActivated">#188038</item>
+        <item name="android:colorControlHighlight">#28000000</item>
+        <item name="android:textColorPrimary">#1F2429</item>
+        <item name="android:textColorSecondary">#6E747C</item>
+        <item name="android:textColorHighlight">#4D188038</item>
+        <item name="android:textColorHint">#6E747C</item>
+        <item name="android:windowBackground">#FFFFFF</item>
+        <item name="android:dialogTheme">@style/NimbusSigma.Dialog</item>
+    </style>
+
+    <style name="NimbusSigma.Dialog" parent="android:Theme.Material.Light.Dialog.NoActionBar">
+        <item name="android:colorAccent">#188038</item>
+        <item name="android:colorControlActivated">#188038</item>
+        <item name="android:textColorPrimary">#1F2429</item>
+        <item name="android:textColorHighlight">#4D188038</item>
+    </style>
+</resources>

@@ -10,6 +10,7 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.util.AttributeSet
 import android.view.Gravity
+import android.view.ContextThemeWrapper
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -17,7 +18,6 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
-import android.widget.PopupMenu
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
@@ -50,6 +50,9 @@ import space.nimbusgo.sigma.grid.column
 import space.nimbusgo.sigma.grid.divider
 import space.nimbusgo.sigma.grid.dp
 import space.nimbusgo.sigma.grid.label
+import space.nimbusgo.sigma.grid.field
+import space.nimbusgo.sigma.grid.SigmaMenu
+import space.nimbusgo.sigma.grid.MenuEntry
 import space.nimbusgo.sigma.grid.matchWidth
 import space.nimbusgo.sigma.grid.pressable
 import space.nimbusgo.sigma.grid.primaryButton
@@ -85,8 +88,36 @@ class SigmaSheetView @JvmOverloads constructor(context: Context, attrs: Attribut
     private var dialog: Dialog? = null
     private var bottomInset = 0
 
+    // The editor's own theme: text fields, dialogs and toasts look the same whatever the app's theme.
+    private val ui: Context = ContextThemeWrapper(context, R.style.NimbusSigma)
+    private val headerBar = HeaderBar(ui)
+    private val headerRule = ui.divider()
+    private val content = FrameLayout(ui)
+
+    /** What the header shows; [SigmaHeader.Hidden] removes it. */
+    var header: SigmaHeader = SigmaHeader()
+        set(v) {
+            field = v
+            headerBar.apply(v)
+            headerRule.visibility = if (v.visible) VISIBLE else GONE
+        }
+
+    /**
+     * What the header's back arrow does. When it is not set, the arrow does
+     * what the system back would: the activity's back, which a navigation
+     * stack or the activity itself answers.
+     */
+    var onBack: (() -> Unit)? = null
+
     init {
         setBackgroundColor(Color.WHITE)
+        addView(ui.column().apply {
+            addView(headerBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52f)))
+            addView(headerRule)
+            addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        headerBar.apply(header)
+        headerBar.onBack = { onBack?.invoke() ?: systemBack() }
         // Stay clear of the keyboard and the navigation bar, whether or not the window resizes for them.
         ViewCompat.setOnApplyWindowInsetsListener(this) { v, insets ->
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
@@ -130,6 +161,7 @@ class SigmaSheetView @JvmOverloads constructor(context: Context, attrs: Attribut
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         dialog?.dismiss()
+        SigmaMenu.dismissShowing()
         scope.cancel()
     }
 
@@ -149,31 +181,83 @@ class SigmaSheetView @JvmOverloads constructor(context: Context, attrs: Attribut
             }
         }
         scope.launch { s.aiAvailable.collect { on -> controller.setAIAvailable(on && s.document.value?.mode == SigmaLinkMode.EDIT) } }
+        scope.launch {
+            combine(s.phase, s.document, s.title, s.saveState) { phase, doc, title, state -> listOf(phase, doc, title, state) }.collect {
+                val phase = s.phase.value
+                val doc = s.document.value
+                val ready = phase == SigmaSession.Phase.Ready && doc != null
+                val edit = ready && doc?.mode == SigmaLinkMode.EDIT
+                val state = when {
+                    phase == SigmaSession.Phase.Loading -> "Opening…"
+                    phase is SigmaSession.Phase.Failed -> "Could not open"
+                    !edit -> "View only"
+                    else -> when (s.saveState.value) {
+                        SigmaSession.SaveState.Saved -> "Saved"
+                        SigmaSession.SaveState.Unsaved -> "Edited"
+                        SigmaSession.SaveState.Saving -> "Saving…"
+                        is SigmaSession.SaveState.Failed -> "Not saved"
+                    }
+                }
+                headerBar.show(s.title.value.ifEmpty { doc?.title ?: "" }, state, canShare = edit, canRename = edit)
+            }
+        }
+        headerBar.onShare = { button ->
+            SigmaMenu(ui, listOf(
+                MenuEntry("Excel workbook (.xlsx)", R.drawable.nimbussigma_ic_table_view) { share(s, SigmaFormat.XLSX) },
+                MenuEntry("CSV of this sheet", R.drawable.nimbussigma_ic_csv) { share(s, SigmaFormat.CSV) },
+            )).showUnder(button)
+        }
+        headerBar.onRename = { renameSheet(s) }
+    }
+
+    /** Renames the sheet itself (its file), from the header's title. */
+    private fun renameSheet(session: SigmaSession) {
+        val current = session.title.value
+        val panel = space.nimbusgo.sigma.grid.Panel(ui, "Rename")
+        val input = ui.field("Name", current).apply { setSelection(current.length) }
+        panel.body.addView(input, matchWidth())
+        panel.action("Cancel", color = GridColors.secondary) { panel.dismiss() }
+        panel.action("Rename", bold = true) {
+            val name = input.text.toString().trim()
+            if (name.isNotEmpty() && name != current) session.rename(name)
+            panel.dismiss()
+        }
+        panel.show()
+        input.requestFocus()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun systemBack() {
+        var c: Context? = context
+        while (c is android.content.ContextWrapper) {
+            if (c is android.app.Activity) return c.onBackPressed()
+            c = c.baseContext
+        }
     }
 
     private fun showLoading() {
         shownBook = null
         editorScope?.cancel()
-        removeAllViews()
-        addView(ProgressBar(context), LayoutParams(dp(40f), dp(40f), Gravity.CENTER))
+        content.removeAllViews()
+        content.addView(ProgressBar(ui), LayoutParams(dp(40f), dp(40f), Gravity.CENTER))
     }
 
     private fun showFailure(error: SigmaException) {
         shownBook = null
         editorScope?.cancel()
-        removeAllViews()
-        val box = context.column(
-            context.label("▦", 34f, GridColors.secondary).apply { gravity = Gravity.CENTER },
-            context.label(error.message ?: "The sheet could not be opened.", 15f, GridColors.secondary).apply {
+        content.removeAllViews()
+        val box = ui.column(
+            ui.label("▦", 34f, GridColors.secondary).apply { gravity = Gravity.CENTER },
+            ui.label(error.message ?: "The sheet could not be opened.", 15f, GridColors.secondary).apply {
                 gravity = Gravity.CENTER
                 setPadding(0, dp(12f), 0, dp(16f))
             },
-            context.primaryButton("Try again") { session?.reload() },
+            ui.primaryButton("Try again") { session?.reload() },
         ).apply {
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(32f), 0, dp(32f), 0)
         }
-        addView(box, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        content.addView(box, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
     }
 
     private fun showEditor(session: SigmaSession, book: SigmaWorkbook, doc: SigmaSession.Document) {
@@ -182,39 +266,39 @@ class SigmaSheetView @JvmOverloads constructor(context: Context, attrs: Attribut
         val job = SupervisorJob(scope.coroutineContext[Job])
         editorScope = job
         val es = CoroutineScope(scope.coroutineContext + job)
-        removeAllViews()
+        content.removeAllViews()
         val readOnly = doc.mode != SigmaLinkMode.EDIT
         controller.setAIAvailable(session.aiAvailable.value && !readOnly)
 
-        val g = SigmaGridView(context, controller)
+        val g = SigmaGridView(ui, controller)
         grid = g
         g.show(book, readOnly)
 
-        val root = context.column()
-        root.addView(FormulaBar(context, controller, readOnly, es), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44f)))
-        root.addView(context.divider())
+        val root = ui.column()
+        root.addView(FormulaBar(ui, controller, readOnly, es), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44f)))
+        root.addView(ui.divider())
         if (doc.test) {
-            root.addView(context.label("Test mode — opened with a test API key. Use a live key in production.", 12f, GridColors.testText, bold = true).apply {
+            root.addView(ui.label("Test mode — opened with a test API key. Use a live key in production.", 12f, GridColors.testText, bold = true).apply {
                 gravity = Gravity.CENTER
                 setBackgroundColor(GridColors.testBanner)
                 setPadding(dp(12f), dp(5f), dp(12f), dp(5f))
             }, matchWidth())
         }
         if (!readOnly) {
-            val bar = FormatBar(context, controller) { format -> share(session, format) }
+            val bar = FormatBar(ui, controller)
             bar.watch(es)
             // The bar scrolls; ⋮ stays pinned at its end, so freeze, rows and the rest are always one tap away.
-            val more = IconButton(context, R.drawable.nimbussigma_ic_more_vert, "More") { controller.grid?.showMoreMenu(it) }
-            root.addView(context.row(
+            val more = IconButton(ui, R.drawable.nimbussigma_ic_more_vert, "More") { controller.grid?.showMoreMenu(it) }
+            root.addView(ui.row(
                 bar.apply { layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f) },
-                View(context).apply { setBackgroundColor(GridColors.frozenLine); layoutParams = LinearLayout.LayoutParams(dp(1f), dp(24f)) },
+                View(ui).apply { setBackgroundColor(GridColors.frozenLine); layoutParams = LinearLayout.LayoutParams(dp(1f), dp(24f)) },
                 more.apply { (layoutParams as? LinearLayout.LayoutParams)?.setMargins(dp(4f), 0, dp(6f), 0) },
             ).apply { setBackgroundColor(Color.WHITE) }, matchWidth())
-            root.addView(context.divider())
+            root.addView(ui.divider())
         }
-        val findSlot = FrameLayout(context)
+        val findSlot = FrameLayout(ui)
         root.addView(findSlot, matchWidth())
-        val noteBanner = context.label("", 13f).apply {
+        val noteBanner = ui.label("", 13f).apply {
             setPadding(dp(12f), dp(7f), dp(12f), dp(7f))
             setBackgroundColor(Color.argb(26, 242, 153, 0))
             maxLines = 2
@@ -223,20 +307,20 @@ class SigmaSheetView @JvmOverloads constructor(context: Context, attrs: Attribut
         }
         root.addView(noteBanner, matchWidth())
         // Vani AI floats over the grid, out of the format bar's way.
-        val ball = VaniBall(context) { controller.showPanel(SigmaGridController.Panel.AI) }.apply { visibility = GONE }
-        val gridArea = FrameLayout(context).apply {
+        val ball = VaniBall(ui) { controller.showPanel(SigmaGridController.Panel.AI) }.apply { visibility = GONE }
+        val gridArea = FrameLayout(ui).apply {
             addView(g, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             addView(ball)
         }
         root.addView(gridArea, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        root.addView(context.divider())
-        val help = FormulaHelpBar(context) { name -> controller.insertFunction(name) }
+        root.addView(ui.divider())
+        val help = FormulaHelpBar(ui) { name -> controller.insertFunction(name) }
         root.addView(help, matchWidth())
-        val keys = FormulaKeys(context, { g.insertIntoEditor(it) }) { controller.showPanel(SigmaGridController.Panel.FUNCTIONS) }
+        val keys = FormulaKeys(ui, { g.insertIntoEditor(it) }) { controller.showPanel(SigmaGridController.Panel.FUNCTIONS) }
         root.addView(keys, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48f)))
-        val tabs = SheetTabs(context, book, controller, readOnly, es)
+        val tabs = SheetTabs(ui, book, controller, readOnly, es)
         root.addView(tabs, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46f)))
-        addView(root, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        content.addView(root, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         // Formula help: what a half-typed name could be, or the syntax of the call being filled in.
         es.launch {
@@ -263,8 +347,8 @@ class SigmaSheetView @JvmOverloads constructor(context: Context, attrs: Attribut
             controller.panel.collect { p ->
                 if (p == SigmaGridController.Panel.FIND) {
                     if (findSlot.childCount == 0) {
-                        findSlot.addView(FindBar(context, book, controller, readOnly, CoroutineScope(es.coroutineContext + SupervisorJob(job))))
-                        findSlot.addView(View(context).apply { setBackgroundColor(GridColors.gridline) }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1, Gravity.BOTTOM))
+                        findSlot.addView(FindBar(ui, book, controller, readOnly, CoroutineScope(es.coroutineContext + SupervisorJob(job))))
+                        findSlot.addView(View(ui).apply { setBackgroundColor(GridColors.gridline) }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1, Gravity.BOTTOM))
                     }
                 } else if (findSlot.childCount > 0) {
                     findSlot.removeAllViews()
@@ -273,11 +357,11 @@ class SigmaSheetView @JvmOverloads constructor(context: Context, attrs: Attribut
                 dialog?.setOnDismissListener(null)
                 dialog?.dismiss()
                 dialog = when (p) {
-                    SigmaGridController.Panel.NOTE -> NotePanel(context, controller, readOnly)
-                    SigmaGridController.Panel.CONDITIONAL_FORMATTING -> ConditionalFormattingPanel(context, book, controller, readOnly, es)
-                    SigmaGridController.Panel.CHART -> if (readOnly) null else ChartPanel(context, book, controller, es)
-                    SigmaGridController.Panel.AI -> if (readOnly) null else VaniPanel(context, session, controller, es)
-                    SigmaGridController.Panel.FUNCTIONS -> if (readOnly) null else FunctionsPanel(context, book, controller, es)
+                    SigmaGridController.Panel.NOTE -> NotePanel(ui, controller, readOnly)
+                    SigmaGridController.Panel.CONDITIONAL_FORMATTING -> ConditionalFormattingPanel(ui, book, controller, readOnly, es)
+                    SigmaGridController.Panel.CHART -> if (readOnly) null else ChartPanel(ui, book, controller, es)
+                    SigmaGridController.Panel.AI -> if (readOnly) null else VaniPanel(ui, session, controller, es)
+                    SigmaGridController.Panel.FUNCTIONS -> if (readOnly) null else FunctionsPanel(ui, book, controller, es)
                     else -> null
                 }?.also { d ->
                     d.setOnDismissListener { if (controller.panel.value == p) controller.showPanel(null) }
@@ -294,11 +378,11 @@ class SigmaSheetView @JvmOverloads constructor(context: Context, attrs: Attribut
             try {
                 val file = session.export(format)
                 val uri = withContext(Dispatchers.IO) {
-                    val dir = File(context.cacheDir, "nimbussigma").apply { mkdirs() }
+                    val dir = File(ui.cacheDir, "nimbussigma").apply { mkdirs() }
                     dir.listFiles()?.forEach { it.delete() }
                     val out = File(dir, file.filename)
                     out.writeBytes(file.data)
-                    FileProvider.getUriForFile(context, context.packageName + ".nimbussigma.files", out)
+                    FileProvider.getUriForFile(ui, ui.packageName + ".nimbussigma.files", out)
                 }
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = format.mimeType
@@ -306,9 +390,9 @@ class SigmaSheetView @JvmOverloads constructor(context: Context, attrs: Attribut
                     putExtra(Intent.EXTRA_TITLE, file.filename)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
-                context.startActivity(Intent.createChooser(send, file.filename).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                ui.startActivity(Intent.createChooser(send, file.filename).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             } catch (e: Exception) {
-                Toast.makeText(context, "The sheet could not be exported: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(ui, "The sheet could not be exported: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -448,30 +532,16 @@ private class SheetTabs(
     }
 
     private fun menu(anchor: View, index: Int, count: Int) {
-        val m = PopupMenu(context, anchor)
-        m.menu.add(0, 0, 0, "Rename")
-        m.menu.add(0, 2, 1, "Duplicate")
-        if (index > 0) m.menu.add(0, 3, 2, "Move left")
-        if (index < count - 1) m.menu.add(0, 4, 3, "Move right")
-        if (count > 1) m.menu.add(0, 1, 4, "Delete")
-        m.setOnMenuItemClickListener {
-            when (it.itemId) {
-                0 -> rename(index)
-                else -> scope.launch {
-                    runCatching {
-                        when (it.itemId) {
-                            1 -> book.deleteSheet(index)
-                            2 -> book.duplicateSheet(index)
-                            3 -> book.moveSheet(index, index - 1)
-                            4 -> book.moveSheet(index, index + 1)
-                            else -> Unit
-                        }
-                    }.onFailure { e -> controller.grid?.flash(e) }
-                }
-            }
-            true
+        fun change(block: suspend () -> Unit) {
+            scope.launch { runCatching { block() }.onFailure { e -> controller.grid?.flash(e) } }
         }
-        m.show()
+        SigmaMenu(context, listOf(
+            MenuEntry("Rename", R.drawable.nimbussigma_ic_edit_square) { rename(index) },
+            MenuEntry("Duplicate", R.drawable.nimbussigma_ic_content_copy) { change { book.duplicateSheet(index) } },
+            MenuEntry("Move left", R.drawable.nimbussigma_ic_west, enabled = index > 0) { change { book.moveSheet(index, index - 1) } },
+            MenuEntry("Move right", R.drawable.nimbussigma_ic_east, enabled = index < count - 1) { change { book.moveSheet(index, index + 1) } },
+            MenuEntry("Delete", R.drawable.nimbussigma_ic_delete, destructive = true, enabled = count > 1) { change { book.deleteSheet(index) } },
+        )).showUnder(anchor)
     }
 
     private fun rename(index: Int) {

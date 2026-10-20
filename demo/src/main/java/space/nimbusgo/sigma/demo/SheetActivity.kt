@@ -19,7 +19,10 @@ class SheetActivity : ComponentActivity() {
         val client = Settings.client(this)!!
         // In a real app this asks your server, which mints the link with its key.
         session = SigmaSession(this) { client.link(id).url }
+        // The editor's header has the back arrow, title and sharing, so the activity needs no bar of its own.
+        actionBar?.hide()
         setContentView(SigmaSheetView(this).apply { open(session) })
+        // For the recents screen.
         lifecycleScope.launch { session.title.collect { title = it.ifEmpty { "Sheet" } } }
     }
 

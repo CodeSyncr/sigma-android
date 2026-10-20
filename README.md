@@ -95,8 +95,26 @@ Keep the session in a `ViewModel` (or handle configuration changes) so a rotatio
 - **Formatting:** bold, italic, underline, strikethrough, text and fill colours, alignment, number formats, decimals, text size, borders, Clear formatting.
 - **Data:** find and replace, sort (a header row stays put), conditional formatting, notes.
 - **Charts:** column, bar, line, area, scatter, pie and doughnut, bound to their cells. Move, resize, restyle, delete.
-- **Vani AI**, when your Nimbus Cloud account is on Pro: people ask, and apply the change it proposes as one undo step. Its use counts against your plan.
+- **Vani AI**, when your Nimbus Cloud account is on a paid plan and the link allows it (see below): people ask, and apply the change it proposes as one undo step. Its use counts against your plan.
 - **Share:** the sheet as Excel or CSV through the system share sheet.
+
+### The header
+
+Above the formula bar: a back arrow, Sigma's mark, the sheet's title with where its edits are (Saved, Saving…, View only), and sharing. Tapping the title renames the sheet. The editor's menus and dialogs are its own, so they look the same in every app and as on iOS.
+
+```kotlin
+sheetView.onBack = { finish() }               // without it, the arrow does the activity's back
+sheetView.header = SigmaHeader(logo = false)  // or back = false
+sheetView.header = SigmaHeader.Hidden         // your screen has its own bar
+```
+
+### Who gets Vani
+
+Vani needs a paid Nimbus Cloud plan, and you decide which of your users get it: mint the link with `ai = false` (the API's `?ai=off`) for someone who has not paid you for AI, and their editor has no Vani. The choice is signed into the link, so the app cannot turn it back on.
+
+```kotlin
+val link = sigma.link(doc.id, ai = user.hasAI)
+```
 
 ### The session
 

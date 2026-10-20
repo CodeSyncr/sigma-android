@@ -24,6 +24,7 @@ class SigmaClient(private val apiKey: String, val baseUrl: String = "https://nim
      *
      * @param idempotencyKey Send the same key when retrying, and a retried upload returns the original document.
      * @param retainDays Delete the document automatically after this many days.
+     * @param ai Whether the returned link offers Vani (it still needs a plan that includes it).
      */
     suspend fun upload(
         data: ByteArray,
@@ -33,6 +34,7 @@ class SigmaClient(private val apiKey: String, val baseUrl: String = "https://nim
         linkLifetimeSeconds: Int? = null,
         retainDays: Int? = null,
         idempotencyKey: String? = null,
+        ai: Boolean = true,
     ): SigmaDocument {
         val boundary = "sigma-" + UUID.randomUUID()
         val out = java.io.ByteArrayOutputStream()
@@ -44,7 +46,7 @@ class SigmaClient(private val apiKey: String, val baseUrl: String = "https://nim
         write("\r\n--$boundary--\r\n")
         val headers = mutableMapOf("Content-Type" to "multipart/form-data; boundary=$boundary")
         idempotencyKey?.let { headers["Idempotency-Key"] = it }
-        return SigmaDocument.from(json("documents", linkQuery(mode, linkLifetimeSeconds, retainDays), "POST", out.toByteArray(), headers))
+        return SigmaDocument.from(json("documents", linkQuery(mode, linkLifetimeSeconds, retainDays, ai), "POST", out.toByteArray(), headers))
     }
 
     /** Creates an empty sheet, ready to open in the editor. */
@@ -54,9 +56,10 @@ class SigmaClient(private val apiKey: String, val baseUrl: String = "https://nim
         mode: SigmaLinkMode = SigmaLinkMode.EDIT,
         linkLifetimeSeconds: Int? = null,
         retainDays: Int? = null,
+        ai: Boolean = true,
     ): SigmaDocument {
         val body = JSONObject().put("title", title).put("blank", format.value).toString().toByteArray()
-        return SigmaDocument.from(json("documents", linkQuery(mode, linkLifetimeSeconds, retainDays), "POST", body, mapOf("Content-Type" to "application/json")))
+        return SigmaDocument.from(json("documents", linkQuery(mode, linkLifetimeSeconds, retainDays, ai), "POST", body, mapOf("Content-Type" to "application/json")))
     }
 
     /** The account's most recent documents, newest first. */
@@ -73,9 +76,12 @@ class SigmaClient(private val apiKey: String, val baseUrl: String = "https://nim
      *
      * @param lifetimeSeconds How long the link may be used to open the sheet:
      *   one minute to seven days, fifteen minutes by default.
+     * @param ai Whether the person the link is for gets Vani. Pass false for
+     *   someone who has not paid you for AI; it is signed into the link. Vani
+     *   also needs a Nimbus Cloud plan that includes it.
      */
-    suspend fun link(id: Int, mode: SigmaLinkMode = SigmaLinkMode.EDIT, lifetimeSeconds: Int? = null): SigmaLink =
-        SigmaLink.from(json("documents/$id/link", linkQuery(mode, lifetimeSeconds, null), "POST"))
+    suspend fun link(id: Int, mode: SigmaLinkMode = SigmaLinkMode.EDIT, lifetimeSeconds: Int? = null, ai: Boolean = true): SigmaLink =
+        SigmaLink.from(json("documents/$id/link", linkQuery(mode, lifetimeSeconds, null, ai), "POST"))
 
     /** The document's file as it is now, edits included, in its own format. */
     suspend fun content(id: Int): ByteArray = raw("documents/$id/content").body
@@ -101,8 +107,9 @@ class SigmaClient(private val apiKey: String, val baseUrl: String = "https://nim
 
     // Plumbing
 
-    private fun linkQuery(mode: SigmaLinkMode, lifetime: Int?, retainDays: Int?): Map<String, String> = buildMap {
+    private fun linkQuery(mode: SigmaLinkMode, lifetime: Int?, retainDays: Int?, ai: Boolean): Map<String, String> = buildMap {
         put("mode", mode.value)
+        if (!ai) put("ai", "off")
         lifetime?.let { put("ttl", it.toString()) }
         retainDays?.let { put("retain_days", it.toString()) }
     }

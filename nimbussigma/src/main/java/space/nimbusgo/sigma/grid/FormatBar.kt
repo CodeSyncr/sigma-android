@@ -9,12 +9,10 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
-import android.widget.PopupMenu
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import space.nimbusgo.sigma.R
-import space.nimbusgo.sigma.SigmaFormat
 import space.nimbusgo.sigma.SigmaGridController
 import space.nimbusgo.sigma.SigmaStyle
 import space.nimbusgo.sigma.SigmaWorkbook
@@ -27,8 +25,6 @@ import space.nimbusgo.sigma.SigmaWorkbook
 internal class FormatBar(
     context: Context,
     private val controller: SigmaGridController,
-    /** Shares the sheet as a file; null hides sharing. */
-    private val share: ((SigmaFormat) -> Unit)?,
 ) : HorizontalScrollView(context) {
     private val strip = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
     private val bold = icon(R.drawable.nimbussigma_ic_format_bold, "Bold") { controller.toggleBold() }
@@ -73,10 +69,6 @@ internal class FormatBar(
             icon(R.drawable.nimbussigma_ic_palette, "Conditional formatting") { controller.showPanel(SigmaGridController.Panel.CONDITIONAL_FORMATTING) },
             note,
         ).forEach { strip.addView(it) }
-        if (share != null) {
-            strip.addView(context.groupGap())
-            strip.addView(icon(R.drawable.nimbussigma_ic_share, "Share") { shareMenu(it) })
-        }
     }
 
     fun watch(scope: CoroutineScope) {
@@ -110,7 +102,12 @@ internal class FormatBar(
         }
     }
 
-    private fun alignMenu(anchor: View) = menu(anchor, listOf("Left", "Centre", "Right", "Automatic"), current = when (controller.activeStyle.value.align) {
+    private fun alignMenu(anchor: View) = menu(anchor, listOf(
+        "Left" to R.drawable.nimbussigma_ic_format_align_left,
+        "Centre" to R.drawable.nimbussigma_ic_format_align_center,
+        "Right" to R.drawable.nimbussigma_ic_format_align_right,
+        "Automatic" to 0,
+    ), current = when (controller.activeStyle.value.align) {
         SigmaStyle.Align.LEFT -> 0; SigmaStyle.Align.CENTER -> 1; SigmaStyle.Align.RIGHT -> 2; null -> 3
     }) { i ->
         controller.setAlign(listOf(SigmaStyle.Align.LEFT, SigmaStyle.Align.CENTER, SigmaStyle.Align.RIGHT, null)[i])
@@ -119,28 +116,30 @@ internal class FormatBar(
     private fun numberMenu(anchor: View) {
         val formats = SigmaStyle.NumberFormat.entries
         val current = formats.indexOf(controller.activeStyle.value.numberFormat ?: SigmaStyle.NumberFormat.AUTO)
-        menu(anchor, formats.map { name(it) }, current) { controller.setNumberFormat(formats[it]) }
+        menu(anchor, formats.map { name(it) to 0 }, current) { controller.setNumberFormat(formats[it]) }
     }
 
     private fun bordersMenu(anchor: View) {
         val kinds = SigmaWorkbook.Borders.entries
-        menu(anchor, listOf("All borders", "Outer border", "Top", "Bottom", "Left", "Right", "No borders")) { controller.setBorders(kinds[it]) }
+        menu(anchor, listOf(
+            "All borders" to R.drawable.nimbussigma_ic_border_all,
+            "Outer border" to R.drawable.nimbussigma_ic_border_outer,
+            "Top" to R.drawable.nimbussigma_ic_border_top,
+            "Bottom" to R.drawable.nimbussigma_ic_border_bottom,
+            "Left" to R.drawable.nimbussigma_ic_border_left,
+            "Right" to R.drawable.nimbussigma_ic_border_right,
+            "No borders" to R.drawable.nimbussigma_ic_border_clear,
+        )) { controller.setBorders(kinds[it]) }
     }
 
-    private fun sortMenu(anchor: View) = menu(anchor, listOf("Sort A → Z", "Sort Z → A")) { controller.sort(it == 0) }
+    private fun sortMenu(anchor: View) = menu(anchor, listOf(
+        "Sort A → Z" to R.drawable.nimbussigma_ic_arrow_upward,
+        "Sort Z → A" to R.drawable.nimbussigma_ic_arrow_downward,
+    )) { controller.sort(it == 0) }
 
-    private fun shareMenu(anchor: View) = menu(anchor, listOf("Excel workbook (.xlsx)", "CSV of this sheet")) {
-        share?.invoke(if (it == 0) SigmaFormat.XLSX else SigmaFormat.CSV)
-    }
-
-    /** A popup menu; [current] marks the chosen item with a check. */
-    private fun menu(anchor: View, items: List<String>, current: Int = -1, pick: (Int) -> Unit) {
-        val m = PopupMenu(context, anchor)
-        items.forEachIndexed { i, t -> m.menu.add(1, i, i, t).apply { if (current >= 0) { isCheckable = true; isChecked = i == current } } }
-        if (current >= 0) m.menu.setGroupCheckable(1, true, true)
-        m.setOnMenuItemClickListener { pick(it.itemId); true }
-        m.show()
-    }
+    /** A menu under a button; [current] marks the chosen item with a check. */
+    private fun menu(anchor: View, items: List<Pair<String, Int>>, current: Int = -1, pick: (Int) -> Unit) =
+        SigmaMenu(context, items.mapIndexed { i, (title, icon) -> MenuEntry(title, icon, checked = i == current) { pick(i) } }).showUnder(anchor)
 
     private fun name(f: SigmaStyle.NumberFormat) = when (f) {
         SigmaStyle.NumberFormat.AUTO -> "Automatic"

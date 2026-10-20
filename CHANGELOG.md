@@ -2,6 +2,11 @@
 
 ## 1.0.2
 
+- **A header** above the formula bar: a back arrow, Sigma's mark, the sheet's title with where its edits are (Saved, Saving…, View only), and sharing. Tap the title to rename the sheet. `SigmaSheetView.header = SigmaHeader(back = false)`, `SigmaHeader(logo = false)` or `SigmaHeader.Hidden`; `onBack` decides what the arrow does (the activity's back when it is not set).
+- **The editor's own menus.** The cell menu, ⋮ More, the format bar's menus, the sheet tab menu, find options and the dropdowns in conditional formatting are drawn by the SDK, the same as on iOS: a rounded card with icons, Cut, Copy, Paste and Clear across the top of the cell menu, and submenus that slide in place. They no longer take their look from the app's theme.
+- Everything inside the editor (text fields, dialogs, toasts) uses the editor's own theme, so it looks the same in every app.
+- Sharing moved from the format bar to the header.
+- Vani is offered only when the link allows it: a link minted with `ai=off` keeps it from that person (see the API's `ai` option).
 - **Vani AI looks as it does in Website Studio.** The launcher is Studio's pill: Nimbo, the mascot, waving, with "Ask Vani" (Nimbo alone on a phone). It floats over the grid in place of the format bar pill; drag it anywhere and it snaps to the nearer side, and the app remembers where. While Vani works Nimbo thinks and a ring pulses, even with the panel closed. The panel is Studio's too: Nimbo and "Vani" in the header, his greeting and ways to start, ink and white bubbles, Nimbo waiting for the answer, the composer, and New chat. Nimbo is drawn natively, so nothing extra is downloaded.
 - **Formula help:** typing a function name offers the functions it could be; inside a call, the syntax shows with the current argument highlighted. **Insert function** (the ƒx key and button) lists every function by category, searchable. The list comes from Sigma's engine, so it is always what Sigma computes. `SigmaWorkbook.functions()` returns it.
 - **Pinch to zoom**, 50% to 200% (Ctrl + / − / 0 on a keyboard).

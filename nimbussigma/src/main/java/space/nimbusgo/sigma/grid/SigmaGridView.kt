@@ -18,7 +18,6 @@ import android.view.GestureDetector
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
-import android.view.Menu
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.View
@@ -27,7 +26,6 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.OverScroller
-import android.widget.PopupMenu
 import android.widget.Toast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +35,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import space.nimbusgo.sigma.R
 import space.nimbusgo.sigma.SigmaAddress
 import space.nimbusgo.sigma.SigmaCell
 import space.nimbusgo.sigma.SigmaChart
@@ -139,7 +138,6 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
         data object Fill : Drag()
         data class Chart(val drag: ChartDrag) : Drag()
     }
-    private val menuAnchor = View(context)
 
     private val scaler = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
@@ -195,7 +193,6 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
         controller.grid = this
         addView(editor, LayoutParams(0, 0))
         editor.visibility = GONE
-        addView(menuAnchor, LayoutParams(1, 1))
         editor.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -253,6 +250,7 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        SigmaMenu.dismissShowing()
         scope.cancel()
     }
 
@@ -1148,129 +1146,111 @@ internal class SigmaGridView(context: Context, val controller: SigmaGridControll
 
     // Menus
 
-    private fun popup(x: Float, y: Float): PopupMenu {
-        menuAnchor.translationX = x
-        menuAnchor.translationY = y
-        return PopupMenu(context, menuAnchor, Gravity.NO_GRAVITY)
-    }
+    private fun act(title: String, a: Action, icon: Int = 0, destructive: Boolean = false, enabled: Boolean = true) =
+        MenuEntry(title, icon, destructive = destructive, enabled = enabled) { perform(a) }
 
     private fun showChartMenu(x: Float, y: Float) {
         if (controller.readOnly.value) return
-        val m = popup(x, y)
-        m.menu.add(0, Action.EDIT_CHART.ordinal, 0, "Edit chart")
-        m.menu.add(0, Action.DELETE_CHART.ordinal, 1, "Delete chart")
-        m.setOnMenuItemClickListener { perform(Action.entries[it.itemId]); true }
-        m.show()
+        SigmaMenu(context, listOf(
+            act("Edit chart", Action.EDIT_CHART, R.drawable.nimbussigma_ic_edit),
+            act("Delete chart", Action.DELETE_CHART, R.drawable.nimbussigma_ic_delete, destructive = true),
+        )).showAt(this, x, y)
     }
+
+    private fun freezeMenu(s: SigmaSelection): MenuEntry {
+        val g = geometry
+        val items = mutableListOf(
+            act("1 row", Action.FREEZE_ONE_ROW),
+            act("2 rows", Action.FREEZE_TWO_ROWS),
+            act("1 column", Action.FREEZE_ONE_COLUMN),
+            act("Up to ${s.active}", Action.FREEZE_HERE),
+        )
+        if (g.frozenRows > 0 || g.frozenColumns > 0) items.add(act("No frozen panes", Action.UNFREEZE))
+        return MenuEntry("Freeze", R.drawable.nimbussigma_ic_ac_unit, children = items)
+    }
+
+    private fun rowItems(s: SigmaSelection): List<MenuEntry> {
+        val word = if (s.bottom > s.top) "rows" else "row"
+        return listOf(
+            act("Insert $word above", Action.INSERT_ROW_ABOVE, R.drawable.nimbussigma_ic_add),
+            act("Insert $word below", Action.INSERT_ROW_BELOW, R.drawable.nimbussigma_ic_add),
+            act("Delete $word", Action.DELETE_ROWS, R.drawable.nimbussigma_ic_delete, destructive = true),
+        )
+    }
+
+    private fun columnItems(s: SigmaSelection): List<MenuEntry> {
+        val word = if (s.right > s.left) "columns" else "column"
+        return listOf(
+            act("Insert $word left", Action.INSERT_COLUMN_LEFT, R.drawable.nimbussigma_ic_add),
+            act("Insert $word right", Action.INSERT_COLUMN_RIGHT, R.drawable.nimbussigma_ic_add),
+            act("Delete $word", Action.DELETE_COLUMNS, R.drawable.nimbussigma_ic_delete, destructive = true),
+        )
+    }
+
+    private fun fillMenu(s: SigmaSelection): MenuEntry {
+        val items = mutableListOf(act("Drag to fill…", Action.FILL))
+        if (s.bottom > s.top) items.add(act("Fill down", Action.FILL_DOWN))
+        if (s.right > s.left) items.add(act("Fill right", Action.FILL_RIGHT))
+        return MenuEntry("Fill", R.drawable.nimbussigma_ic_south, children = items)
+    }
+
+    private fun sortMenu() = MenuEntry("Sort", R.drawable.nimbussigma_ic_sort, children = listOf(
+        act("Sort A → Z", Action.SORT_ASCENDING, R.drawable.nimbussigma_ic_arrow_upward),
+        act("Sort Z → A", Action.SORT_DESCENDING, R.drawable.nimbussigma_ic_arrow_downward),
+    ))
+
+    private fun noteItem(s: SigmaSelection) =
+        act(if (controller.activeNote.value.isEmpty()) "Add note" else "Edit note", Action.NOTE, R.drawable.nimbussigma_ic_sticky_note_2, enabled = s.isSingle)
 
     /** The format bar's pinned ⋮ menu: the sheet tools that otherwise sit behind a long press. */
     internal fun showMoreMenu(anchor: View) {
         if (editing != null || controller.readOnly.value) return
         val s = controller.selection.value
-        val g = geometry
-        val m = PopupMenu(context, anchor, Gravity.END)
-        val menu = m.menu
-        var order = 0
-        fun add(to: Menu, title: String, a: Action) { to.add(0, a.ordinal, order++, title) }
-        val freeze = menu.addSubMenu(0, 1003, order++, "Freeze")
-        add(freeze, "1 row", Action.FREEZE_ONE_ROW)
-        add(freeze, "2 rows", Action.FREEZE_TWO_ROWS)
-        add(freeze, "1 column", Action.FREEZE_ONE_COLUMN)
-        add(freeze, "Up to ${s.active}", Action.FREEZE_HERE)
-        if (g.frozenRows > 0 || g.frozenColumns > 0) add(freeze, "No frozen panes", Action.UNFREEZE)
-        val rowWord = if (s.bottom > s.top) "rows" else "row"
-        val colWord = if (s.right > s.left) "columns" else "column"
-        val rows = menu.addSubMenu(0, 1000, order++, "Rows")
-        add(rows, "Insert $rowWord above", Action.INSERT_ROW_ABOVE)
-        add(rows, "Insert $rowWord below", Action.INSERT_ROW_BELOW)
-        add(rows, "Delete $rowWord", Action.DELETE_ROWS)
-        val cols = menu.addSubMenu(0, 1001, order++, "Columns")
-        add(cols, "Insert $colWord left", Action.INSERT_COLUMN_LEFT)
-        add(cols, "Insert $colWord right", Action.INSERT_COLUMN_RIGHT)
-        add(cols, "Delete $colWord", Action.DELETE_COLUMNS)
-        val fill = menu.addSubMenu(0, 1004, order++, "Fill")
-        add(fill, "Drag to fill…", Action.FILL)
-        if (s.bottom > s.top) add(fill, "Fill down", Action.FILL_DOWN)
-        if (s.right > s.left) add(fill, "Fill right", Action.FILL_RIGHT)
-        val sort = menu.addSubMenu(0, 1002, order++, "Sort")
-        add(sort, "Sort A → Z", Action.SORT_ASCENDING)
-        add(sort, "Sort Z → A", Action.SORT_DESCENDING)
-        add(menu, "Paste values only", Action.PASTE_VALUES)
-        menu.findItem(Action.PASTE_VALUES.ordinal).isEnabled = clip != null
-        add(menu, if (controller.activeNote.value.isEmpty()) "Add note" else "Edit note", Action.NOTE)
-        menu.findItem(Action.NOTE.ordinal).isEnabled = s.isSingle
-        m.setOnMenuItemClickListener {
-            if (it.itemId < Action.entries.size) perform(Action.entries[it.itemId])
-            true
-        }
-        m.show()
+        SigmaMenu(context, listOf(
+            freezeMenu(s),
+            MenuEntry("Rows", R.drawable.nimbussigma_ic_table_rows, children = rowItems(s)),
+            MenuEntry("Columns", R.drawable.nimbussigma_ic_view_column, children = columnItems(s)),
+            fillMenu(s),
+            sortMenu(),
+            act("Paste values only", Action.PASTE_VALUES, R.drawable.nimbussigma_ic_content_paste, enabled = clip != null),
+            noteItem(s),
+        )).showUnder(anchor)
     }
 
+    /** The cell menu, at the finger: the clipboard across the top, then the sheet tools. */
     fun showMenu(x: Float, y: Float) {
         if (editing != null) return
         val s = controller.selection.value
         val g = geometry
         val wholeRows = s.left == 0 && s.right == g.columns - 1
         val wholeColumns = s.top == 0 && s.bottom == g.rows - 1
-        val ro = controller.readOnly.value
-        val m = popup(x, y)
-        val menu = m.menu
-        var order = 0
-        fun add(to: Menu, title: String, a: Action) { to.add(0, a.ordinal, order++, title) }
-        if (!ro) {
-            if (s.isSingle) add(menu, "Edit", Action.EDIT)
-            add(menu, "Cut", Action.CUT)
+        if (controller.readOnly.value) {
+            SigmaMenu(context, listOf(act("Copy", Action.COPY, R.drawable.nimbussigma_ic_content_copy))).showAt(this, x, y)
+            return
         }
-        add(menu, "Copy", Action.COPY)
-        if (!ro) {
-            if (clipboard().hasPrimaryClip()) add(menu, "Paste", Action.PASTE)
-            // Values only needs Sigma's own copy, which knows what the cells computed.
-            if (clip != null) add(menu, "Paste values only", Action.PASTE_VALUES)
-            add(menu, "Clear", Action.CLEAR)
-            if (!wholeRows && !wholeColumns) {
-                val fill = menu.addSubMenu(0, 1004, order++, "Fill")
-                add(fill, "Drag to fill…", Action.FILL)
-                if (s.bottom > s.top) add(fill, "Fill down", Action.FILL_DOWN)
-                if (s.right > s.left) add(fill, "Fill right", Action.FILL_RIGHT)
+        val quick = listOf(
+            MenuQuick(R.drawable.nimbussigma_ic_content_cut, "Cut") { perform(Action.CUT) },
+            MenuQuick(R.drawable.nimbussigma_ic_content_copy, "Copy") { perform(Action.COPY) },
+            MenuQuick(R.drawable.nimbussigma_ic_content_paste, "Paste", enabled = clipboard().hasPrimaryClip()) { perform(Action.PASTE) },
+            MenuQuick(R.drawable.nimbussigma_ic_backspace, "Clear") { perform(Action.CLEAR) },
+        )
+        val items = mutableListOf<MenuEntry>()
+        if (s.isSingle) items.add(act("Edit", Action.EDIT, R.drawable.nimbussigma_ic_edit))
+        // Values only needs Sigma's own copy, which knows what the cells computed.
+        if (clip != null) items.add(act("Paste values only", Action.PASTE_VALUES, R.drawable.nimbussigma_ic_content_paste))
+        if (!wholeRows && !wholeColumns) items.add(fillMenu(s))
+        when {
+            wholeRows -> items.addAll(rowItems(s))
+            wholeColumns -> items.addAll(columnItems(s))
+            else -> {
+                items.add(MenuEntry("Rows", R.drawable.nimbussigma_ic_table_rows, children = rowItems(s)))
+                items.add(MenuEntry("Columns", R.drawable.nimbussigma_ic_view_column, children = columnItems(s)))
             }
-            val rowWord = if (s.bottom > s.top) "rows" else "row"
-            val colWord = if (s.right > s.left) "columns" else "column"
-            fun rowItems(to: Menu) {
-                add(to, "Insert $rowWord above", Action.INSERT_ROW_ABOVE)
-                add(to, "Insert $rowWord below", Action.INSERT_ROW_BELOW)
-                add(to, "Delete ${rowWord}", Action.DELETE_ROWS)
-            }
-            fun colItems(to: Menu) {
-                add(to, "Insert $colWord left", Action.INSERT_COLUMN_LEFT)
-                add(to, "Insert $colWord right", Action.INSERT_COLUMN_RIGHT)
-                add(to, "Delete $colWord", Action.DELETE_COLUMNS)
-            }
-            when {
-                wholeRows -> rowItems(menu)
-                wholeColumns -> colItems(menu)
-                else -> {
-                    rowItems(menu.addSubMenu(0, 1000, order++, "Rows"))
-                    colItems(menu.addSubMenu(0, 1001, order++, "Columns"))
-                }
-            }
-            if (!wholeRows) {
-                val sort = menu.addSubMenu(0, 1002, order++, "Sort")
-                add(sort, "Sort A → Z", Action.SORT_ASCENDING)
-                add(sort, "Sort Z → A", Action.SORT_DESCENDING)
-            }
-            if (s.isSingle) add(menu, if (controller.activeNote.value.isEmpty()) "Add note" else "Edit note", Action.NOTE)
-            val freeze = menu.addSubMenu(0, 1003, order++, "Freeze")
-            add(freeze, "1 row", Action.FREEZE_ONE_ROW)
-            add(freeze, "2 rows", Action.FREEZE_TWO_ROWS)
-            add(freeze, "1 column", Action.FREEZE_ONE_COLUMN)
-            add(freeze, "Up to ${s.active}", Action.FREEZE_HERE)
-            if (g.frozenRows > 0 || g.frozenColumns > 0) add(freeze, "No frozen panes", Action.UNFREEZE)
         }
-        m.setOnMenuItemClickListener {
-            if (it.itemId < Action.entries.size) perform(Action.entries[it.itemId])
-            true
-        }
-        m.show()
+        if (!wholeRows) items.add(sortMenu())
+        if (s.isSingle) items.add(noteItem(s))
+        items.add(freezeMenu(s))
+        SigmaMenu(context, items, quick).showAt(this, x, y)
     }
 
     // Hardware keyboard

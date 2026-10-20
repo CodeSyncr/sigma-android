@@ -12,13 +12,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
 import android.widget.CheckBox
 import android.widget.LinearLayout
-import android.widget.PopupMenu
 import android.widget.ScrollView
-import android.widget.Spinner
 import android.widget.TextView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -28,6 +24,7 @@ import kotlinx.coroutines.launch
 import space.nimbusgo.sigma.SigmaAddress
 import space.nimbusgo.sigma.SigmaChart
 import space.nimbusgo.sigma.SigmaConditionalRule
+import space.nimbusgo.sigma.R
 import space.nimbusgo.sigma.SigmaGridController
 import space.nimbusgo.sigma.SigmaSelection
 import space.nimbusgo.sigma.SigmaWorkbook
@@ -138,14 +135,11 @@ internal class FindBar(
     }
 
     private fun options(anchor: View) {
-        val m = PopupMenu(context, anchor)
-        m.menu.add(0, 0, 0, "Match case").setCheckable(true).isChecked = matchCase
-        if (!readOnly) m.menu.add(0, 1, 1, "Replace").setCheckable(true).isChecked = replaceRow.visibility == VISIBLE
-        m.setOnMenuItemClickListener {
-            if (it.itemId == 0) { matchCase = !matchCase; search() } else replaceRow.visibility = if (replaceRow.visibility == VISIBLE) GONE else VISIBLE
-            true
-        }
-        m.show()
+        val items = mutableListOf(MenuEntry("Match case", R.drawable.nimbussigma_ic_match_case, checked = matchCase) { matchCase = !matchCase; search() })
+        if (!readOnly) items.add(MenuEntry("Replace", R.drawable.nimbussigma_ic_find_replace, checked = replaceRow.visibility == VISIBLE) {
+            replaceRow.visibility = if (replaceRow.visibility == VISIBLE) GONE else VISIBLE
+        })
+        SigmaMenu(context, items).showUnder(anchor)
     }
 
     private fun search(keepPlace: Boolean = false) {
@@ -275,28 +269,24 @@ internal class RuleEditor(context: Context, range: SigmaSelection, add: (SigmaCo
     init {
         val conditions = SigmaConditionalRule.Condition.entries
         val rangeField = context.field("Range, e.g. B2:B20", range.toString()).apply { inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS }
-        val condition = spinner(conditions.map { it.label })
+        val condition = Picker(context, conditions.map { it.label })
         val value = context.field("Value")
         val value2 = context.field("And")
-        val look = spinner(looks.map { it.first })
+        val look = Picker(context, looks.map { it.first })
         val bold = CheckBox(context).apply { text = "Bold" }
         val preview = context.label("1,234", 15f).apply { setPadding(dp(14f), dp(6f), dp(14f), dp(6f)) }
         fun refresh() {
-            val c = conditions[condition.selectedItemPosition]
+            val c = conditions[condition.selected]
             value.visibility = if (c.needsValue) View.VISIBLE else View.GONE
             value.hint = if (c == SigmaConditionalRule.Condition.CONTAINS) "Text" else "Value"
             value2.visibility = if (c == SigmaConditionalRule.Condition.BETWEEN) View.VISIBLE else View.GONE
-            val l = looks[look.selectedItemPosition]
+            val l = looks[look.selected]
             preview.setTextColor(GridColors.hex(l.third) ?: GridColors.ink)
             preview.background = rounded(GridColors.hex(l.second) ?: Color.TRANSPARENT, dp(5f).toFloat())
             preview.typeface = if (bold.isChecked || l.second == null) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
         }
-        val listener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) = refresh()
-            override fun onNothingSelected(p: AdapterView<*>?) {}
-        }
-        condition.onItemSelectedListener = listener
-        look.onItemSelectedListener = listener
+        condition.onChange = { refresh() }
+        look.onChange = { refresh() }
         bold.setOnCheckedChangeListener { _, _ -> refresh() }
 
         section("Cells"); body.addView(rangeField, matchWidth())
@@ -310,10 +300,10 @@ internal class RuleEditor(context: Context, range: SigmaSelection, add: (SigmaCo
         action("Cancel", color = GridColors.secondary) { dismiss() }
         action("Add", bold = true) {
             val r = SigmaSelection.parse(rangeField.text.toString().replace(" ", ""))
-            val c = conditions[condition.selectedItemPosition]
+            val c = conditions[condition.selected]
             if (r == null) { rangeField.error = "Not a range"; return@action }
             if (c.needsValue && value.text.isEmpty()) { value.error = "Needed"; return@action }
-            val l = looks[look.selectedItemPosition]
+            val l = looks[look.selected]
             add(SigmaConditionalRule(
                 r, c, value.text.toString(),
                 if (c == SigmaConditionalRule.Condition.BETWEEN) value2.text.toString() else null,
@@ -325,10 +315,6 @@ internal class RuleEditor(context: Context, range: SigmaSelection, add: (SigmaCo
         }
     }
 
-    private fun spinner(items: List<String>) = Spinner(context).apply {
-        adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, items)
-        background = rounded(GridColors.surface, dp(9f).toFloat())
-    }
 }
 
 /** Edit the selected chart: its type, title, data and stacking. */
