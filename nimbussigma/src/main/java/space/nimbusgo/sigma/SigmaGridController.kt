@@ -24,6 +24,8 @@ class SigmaGridController {
     private val _selectedChart = MutableStateFlow<String?>(null)
     private val _aiAvailable = MutableStateFlow(false)
     private val _aiMessages = MutableStateFlow<List<SigmaAIMessage>>(emptyList())
+    private val _aiWorking = MutableStateFlow(false)
+    private val _aiFailure = MutableStateFlow<String?>(null)
 
     val selection: StateFlow<SigmaSelection> = _selection.asStateFlow()
     val isEditing: StateFlow<Boolean> = _isEditing.asStateFlow()
@@ -43,6 +45,10 @@ class SigmaGridController {
     val aiAvailable: StateFlow<Boolean> = _aiAvailable.asStateFlow()
     /** The conversation with Vani AI, kept while the sheet is open. */
     val aiMessages: StateFlow<List<SigmaAIMessage>> = _aiMessages.asStateFlow()
+    /** Whether Vani AI is answering right now, panel open or not. */
+    val aiWorking: StateFlow<Boolean> = _aiWorking.asStateFlow()
+    /** Why Vani's last answer did not arrive, until the next question. */
+    internal val aiFailure: StateFlow<String?> = _aiFailure.asStateFlow()
 
     enum class Panel { FIND, CONDITIONAL_FORMATTING, NOTE, CHART, AI, FUNCTIONS }
 
@@ -61,6 +67,8 @@ class SigmaGridController {
     internal fun setReadOnly(on: Boolean) { _readOnly.value = on }
     internal fun setSelectedChart(id: String?) { _selectedChart.value = id }
     internal fun setAIAvailable(on: Boolean) { _aiAvailable.value = on }
+    internal fun setAIWorking(on: Boolean) { _aiWorking.value = on }
+    internal fun setAIFailure(why: String?) { _aiFailure.value = why }
     internal fun setAIMessages(m: List<SigmaAIMessage>) { _aiMessages.value = m }
 
     /** Opens a panel over the grid, or closes it with null. */

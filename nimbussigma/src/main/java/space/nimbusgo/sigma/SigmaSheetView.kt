@@ -250,6 +250,7 @@ class SigmaSheetView @JvmOverloads constructor(context: Context, attrs: Attribut
                 ball.visibility = if (show) VISIBLE else GONE
             }
         }
+        es.launch { controller.aiWorking.collect { ball.working = it } }
         es.launch {
             combine(controller.isEditing, controller.activeNote) { e, n -> e to n }.collect { (editing, note) ->
                 keys.visibility = if (editing) VISIBLE else GONE
