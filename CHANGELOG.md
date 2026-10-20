@@ -1,7 +1,8 @@
 # Changelog
 
-## 1.1.0 (unreleased)
+## 1.0.2 (unreleased)
 
+- **Vani AI floating ball** in place of the format bar pill: tap it to open Vani; drag it anywhere and it snaps to the nearer side, and the app remembers where. It hides while a cell is being edited and shows only when the sheet's owner has Vani AI.
 - **Formula help:** typing a function name offers the functions it could be; inside a call, the syntax shows with the current argument highlighted. **Insert function** (the ƒx key and button) lists every function by category, searchable. The list comes from Sigma's engine, so it is always what Sigma computes. `SigmaWorkbook.functions()` returns it.
 - **Pinch to zoom**, 50% to 200% (Ctrl + / − / 0 on a keyboard).
 - **Fill by dragging:** Fill › Drag to fill turns the corner handle into a fill handle; series continue and formulas shift.

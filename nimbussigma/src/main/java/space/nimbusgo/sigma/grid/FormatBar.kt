@@ -31,21 +31,6 @@ internal class FormatBar(
     private val share: ((SigmaFormat) -> Unit)?,
 ) : HorizontalScrollView(context) {
     private val strip = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-    private val ai = context.row(
-        IconButton(context, R.drawable.nimbussigma_ic_auto_awesome, "Vani AI") {}.apply {
-            tint = Color.WHITE; background = null; isClickable = false
-            layoutParams = LinearLayout.LayoutParams(dp(28f), dp(28f)); setPadding(dp(4f), dp(4f), 0, dp(4f))
-        },
-        context.label("Vani AI", 14f, Color.WHITE, bold = true).apply { setPadding(dp(2f), 0, dp(12f), 0) },
-    ).apply {
-        background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Color.rgb(232, 77, 61), Color.rgb(250, 115, 23))).apply { cornerRadius = dp(16f).toFloat() }
-        setPadding(dp(6f), 0, 0, 0)
-        isClickable = true
-        contentDescription = "Vani AI"
-        setOnClickListener { controller.showPanel(SigmaGridController.Panel.AI) }
-        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32f)).apply { rightMargin = dp(2f) }
-    }
-    private val aiGap = context.groupGap()
     private val bold = icon(R.drawable.nimbussigma_ic_format_bold, "Bold") { controller.toggleBold() }
     private val italic = icon(R.drawable.nimbussigma_ic_format_italic, "Italic") { controller.toggleItalic() }
     private val underline = icon(R.drawable.nimbussigma_ic_format_underlined, "Underline") { controller.toggleUnderline() }
@@ -66,7 +51,6 @@ internal class FormatBar(
         addView(strip, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48f)))
         strip.setPadding(dp(8f), 0, dp(8f), 0)
         listOf(
-            ai, aiGap,
             bold, italic, underline, strike, context.groupGap(),
             textColor, fillColor, align, context.groupGap(),
             number,
@@ -97,9 +81,7 @@ internal class FormatBar(
 
     fun watch(scope: CoroutineScope) {
         scope.launch {
-            combine(controller.activeStyle, controller.activeNote, controller.aiAvailable) { s, n, a -> Triple(s, n, a) }.collect { (s, n, a) ->
-                ai.visibility = if (a) VISIBLE else GONE
-                aiGap.visibility = if (a) VISIBLE else GONE
+            combine(controller.activeStyle, controller.activeNote) { s, n -> s to n }.collect { (s, n) ->
                 bold.on = s.bold == true
                 italic.on = s.italic == true
                 underline.on = s.underline == true

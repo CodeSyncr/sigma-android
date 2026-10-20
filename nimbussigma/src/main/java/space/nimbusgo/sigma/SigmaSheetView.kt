@@ -43,6 +43,7 @@ import space.nimbusgo.sigma.grid.IconButton
 import space.nimbusgo.sigma.grid.GridColors
 import space.nimbusgo.sigma.grid.NotePanel
 import space.nimbusgo.sigma.grid.SigmaGridView
+import space.nimbusgo.sigma.grid.VaniBall
 import space.nimbusgo.sigma.grid.VaniPanel
 import space.nimbusgo.sigma.grid.button
 import space.nimbusgo.sigma.grid.column
@@ -221,7 +222,13 @@ class SigmaSheetView @JvmOverloads constructor(context: Context, attrs: Attribut
             setOnClickListener { controller.showPanel(SigmaGridController.Panel.NOTE) }
         }
         root.addView(noteBanner, matchWidth())
-        root.addView(g, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        // Vani AI floats over the grid, out of the format bar's way.
+        val ball = VaniBall(context) { controller.showPanel(SigmaGridController.Panel.AI) }.apply { visibility = GONE }
+        val gridArea = FrameLayout(context).apply {
+            addView(g, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(ball)
+        }
+        root.addView(gridArea, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(context.divider())
         val help = FormulaHelpBar(context) { name -> controller.insertFunction(name) }
         root.addView(help, matchWidth())
@@ -236,6 +243,11 @@ class SigmaSheetView @JvmOverloads constructor(context: Context, attrs: Attribut
             val functions = runCatching { book.functions() }.getOrDefault(emptyList())
             combine(controller.isEditing, controller.editText) { e, t -> if (e) t else "" }.collect { text ->
                 help.show(FormulaHint.of(text, functions))
+            }
+        }
+        es.launch {
+            combine(controller.isEditing, controller.aiAvailable) { e, a -> a && !e }.collect { show ->
+                ball.visibility = if (show) VISIBLE else GONE
             }
         }
         es.launch {
