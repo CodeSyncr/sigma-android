@@ -58,7 +58,7 @@ afterEvaluate {
                 from(components["release"])
                 groupId = "com.github.CodeSyncr"
                 artifactId = "sigma-android"
-                version = project.findProperty("version")?.toString()?.takeIf { it != "unspecified" } ?: "1.0.1"
+                version = project.findProperty("version")?.toString()?.takeIf { it != "unspecified" } ?: "1.0.2"
             }
         }
     }
