@@ -151,7 +151,11 @@ internal class SigmaMenu(
         below = target.bottom + gap + h <= frame.bottom - margin || target.top - gap - h < frame.top + margin
         var top = if (below) target.bottom + gap else target.top - gap - h
         top = top.coerceIn(frame.top + margin, maxOf(frame.top + margin, frame.bottom - margin - h))
-        return (left - shadow) to (top - shadow)
+        // The popup is placed in its parent window's coordinates, not the screen's: a
+        // dialog (a panel's dropdown) starts part way down the screen.
+        val origin = IntArray(2)
+        view.rootView.getLocationOnScreen(origin)
+        return (left - shadow - origin[0]) to (top - shadow - origin[1])
     }
 
     private fun render(items: List<MenuEntry>, parent: MenuEntry?) {
